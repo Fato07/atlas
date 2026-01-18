@@ -11,6 +11,8 @@ dependencies = [
     "voyageai>=0.2.0",
     "pydantic>=2.7.0",
     "python-dotenv>=1.0.0",
+    "tenacity>=8.2.0",
+    "structlog>=24.1.0",
 ]
 
 [project.optional-dependencies]
@@ -34,3 +36,9 @@ select = ["E", "F", "I", "N", "W"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
