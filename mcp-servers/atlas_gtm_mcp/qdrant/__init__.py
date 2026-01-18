@@ -21,17 +21,23 @@ from fastmcp.exceptions import ToolError
 from qdrant_client import QdrantClient
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
-from .embeddings import embed_document, embed_query
+from .embeddings import EmbeddingError, embed_batch, embed_document, embed_query
 from .logging import log_tool_error, log_tool_result
 from .models import (
+    VALID_TRANSITIONS,
+    BrainStatus,
     ContentType,
     ICPCategory,
     Importance,
     InsightCategory,
     ReplyType,
+    SeedingError,
+    SeedingResult,
     SourceMetadata,
     ValidationStatus,
+    generate_point_id,
     validate_brain_id,
+    validate_status_transition,
 )
 from .quality_gates import run_quality_gate
 
@@ -62,6 +68,213 @@ def _handle_qdrant_error(e: Exception) -> None:
     if "Connection" in error_type or "Timeout" in error_type:
         raise ToolError("Knowledge base unavailable, retry later") from e
     raise ToolError(f"Knowledge base error: {e}") from e
+
+
+# ==========================================================================
+# Phase 2: Foundational Helpers for Brain Lifecycle (003-brain-lifecycle)
+# ==========================================================================
+
+
+async def _validate_brain_exists(brain_id: str) -> dict:
+    """Validate that a brain exists and return its data.
+
+    Args:
+        brain_id: The brain ID to validate.
+
+    Returns:
+        Brain payload data if found.
+
+    Raises:
+        ToolError: If brain_id is invalid or brain not found.
+    """
+    if not validate_brain_id(brain_id):
+        raise ToolError(f"Invalid brain_id format: {brain_id}")
+
+    qdrant = _get_qdrant_client()
+
+    try:
+        results, _ = qdrant.scroll(
+            collection_name="brains",
+            scroll_filter=Filter(
+                must=[FieldCondition(key="id", match=MatchValue(value=brain_id))]
+            ),
+            limit=1,
+            with_payload=True,
+        )
+
+        if not results:
+            raise ToolError(f"Brain not found: {brain_id}")
+
+        return results[0].payload
+
+    except ToolError:
+        raise
+    except Exception as e:
+        _handle_qdrant_error(e)
+
+
+async def _validate_brain_seedable(brain_id: str) -> dict:
+    """Validate that a brain exists and can receive seeded content.
+
+    Per FR-004.1, only brains with status "draft" or "active" can be seeded.
+    Archived brains cannot receive new content.
+
+    Args:
+        brain_id: The brain ID to validate.
+
+    Returns:
+        Brain payload data if valid and seedable.
+
+    Raises:
+        ToolError: If brain not found or not seedable (archived).
+    """
+    brain_data = await _validate_brain_exists(brain_id)
+
+    status = brain_data.get("status", "")
+    if status == BrainStatus.ARCHIVED.value:
+        raise ToolError(
+            f"Cannot seed to archived brain: {brain_id}. "
+            "Only draft or active brains can receive content."
+        )
+
+    return brain_data
+
+
+async def _seed_items_to_collection(
+    brain_id: str,
+    items: list[dict],
+    collection: str,
+    embed_field: str,
+    key_field: str,
+) -> SeedingResult:
+    """Seed multiple items to a Qdrant collection with partial failure handling.
+
+    Implements upsert behavior using deterministic point IDs based on brain_id + key_field.
+    Per FR-008, handles partial failures - seeds valid items and reports errors for invalid ones.
+
+    Args:
+        brain_id: Target brain ID for scoping.
+        items: List of item dicts to seed.
+        collection: Target Qdrant collection name.
+        embed_field: Field name containing text to embed.
+        key_field: Field name used for upsert key (combined with brain_id).
+
+    Returns:
+        SeedingResult with seeded_count and any errors.
+    """
+    if not items:
+        return SeedingResult(
+            brain_id=brain_id,
+            collection=collection,
+            seeded_count=0,
+            errors=[],
+            message="No items to seed",
+        )
+
+    # Validate brain is seedable first
+    await _validate_brain_seedable(brain_id)
+
+    errors: list[SeedingError] = []
+    valid_items: list[tuple[int, dict, str]] = []  # (index, item, text_to_embed)
+
+    # Validate items and extract text to embed
+    for idx, item in enumerate(items):
+        item_name = item.get("name", item.get("topic", item.get("objection_text", f"item_{idx}")))
+
+        # Check for required embed field
+        text_to_embed = item.get(embed_field)
+        if not text_to_embed:
+            errors.append(
+                SeedingError(
+                    index=idx,
+                    name=str(item_name),
+                    error=f"Missing required field: {embed_field}",
+                )
+            )
+            continue
+
+        # Check for key field
+        key_value = item.get(key_field)
+        if not key_value:
+            errors.append(
+                SeedingError(
+                    index=idx,
+                    name=str(item_name),
+                    error=f"Missing required field: {key_field}",
+                )
+            )
+            continue
+
+        valid_items.append((idx, item, str(text_to_embed)))
+
+    if not valid_items:
+        return SeedingResult(
+            brain_id=brain_id,
+            collection=collection,
+            seeded_count=0,
+            errors=errors,
+            message=f"No valid items to seed. {len(errors)} errors.",
+        )
+
+    # Batch embed all valid items
+    texts_to_embed = [text for _, _, text in valid_items]
+
+    try:
+        # Process in batches of 100 (Voyage AI limit)
+        all_embeddings: list[list[float]] = []
+        for i in range(0, len(texts_to_embed), 100):
+            batch = texts_to_embed[i : i + 100]
+            batch_embeddings = embed_batch(batch, input_type="document")
+            all_embeddings.extend(batch_embeddings)
+    except EmbeddingError as e:
+        raise ToolError(f"Embedding failed: {e}") from e
+
+    # Build points for upsert
+    points: list[PointStruct] = []
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    for embedding_idx, (item_idx, item, _) in enumerate(valid_items):
+        key_value = item.get(key_field)
+        point_id = generate_point_id(brain_id, str(key_value))
+
+        # Build payload with brain_id scope
+        payload = {
+            "brain_id": brain_id,
+            **item,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+
+        points.append(
+            PointStruct(
+                id=point_id,
+                vector=all_embeddings[embedding_idx],
+                payload=payload,
+            )
+        )
+
+    # Upsert to Qdrant
+    try:
+        qdrant = _get_qdrant_client()
+        qdrant.upsert(collection_name=collection, points=points)
+    except Exception as e:
+        _handle_qdrant_error(e)
+
+    seeded_count = len(points)
+    error_count = len(errors)
+
+    if error_count > 0:
+        message = f"Seeded {seeded_count} items with {error_count} errors"
+    else:
+        message = f"Successfully seeded {seeded_count} items"
+
+    return SeedingResult(
+        brain_id=brain_id,
+        collection=collection,
+        seeded_count=seeded_count,
+        errors=errors,
+        message=message,
+    )
 
 
 def register_qdrant_tools(mcp: FastMCP) -> None:
@@ -701,4 +914,792 @@ def register_qdrant_tools(mcp: FastMCP) -> None:
 
         except Exception as e:
             log_tool_error("list_brains", params, e, start)
+            _handle_qdrant_error(e)
+
+    # ==========================================================================
+    # Brain Lifecycle Tools (003-brain-lifecycle)
+    # ==========================================================================
+
+    @mcp.tool()
+    async def create_brain(
+        vertical: str,
+        name: str,
+        description: str,
+        config: dict | None = None,
+    ) -> dict:
+        """
+        Create a new brain for a vertical with status "draft".
+
+        Args:
+            vertical: Vertical identifier (lowercase, alphanumeric with hyphens/underscores)
+            name: Human-readable brain name (3-100 chars)
+            description: Brain description explaining its purpose (10-500 chars)
+            config: Optional configuration (uses defaults if not provided)
+                - default_tier_thresholds: Score thresholds for response tiers
+                - auto_response_enabled: Enable automatic responses for tier 1
+                - learning_enabled: Enable insight learning from conversations
+                - quality_gate_threshold: Minimum confidence for auto-responses
+
+        Returns:
+            Result with brain_id, status, and message
+        """
+        from .models import generate_brain_id
+
+        start = time.perf_counter()
+        params = {"vertical": vertical, "name": name}
+
+        try:
+            # Validate vertical format
+            import re
+            if not re.match(r"^[a-z][a-z0-9_-]*$", vertical):
+                raise ToolError(
+                    f"Invalid vertical format: {vertical}. "
+                    "Must be lowercase, start with letter, alphanumeric with hyphens/underscores."
+                )
+
+            if len(vertical) < 2 or len(vertical) > 50:
+                raise ToolError("Vertical must be 2-50 characters")
+
+            if len(name) < 3 or len(name) > 100:
+                raise ToolError("Name must be 3-100 characters")
+
+            if len(description) < 10 or len(description) > 500:
+                raise ToolError("Description must be 10-500 characters")
+
+            # Generate brain ID
+            brain_id = generate_brain_id(vertical)
+
+            # Default config
+            default_config = {
+                "default_tier_thresholds": {"tier1": 90, "tier2": 70, "tier3": 50},
+                "auto_response_enabled": False,
+                "learning_enabled": True,
+                "quality_gate_threshold": 0.7,
+            }
+
+            # Merge with provided config
+            final_config = {**default_config, **(config or {})}
+
+            timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+            payload = {
+                "id": brain_id,
+                "name": name,
+                "vertical": vertical,
+                "version": "1.0",
+                "status": "draft",
+                "description": description,
+                "config": final_config,
+                "stats": {
+                    "icp_rules_count": 0,
+                    "templates_count": 0,
+                    "handlers_count": 0,
+                    "research_docs_count": 0,
+                    "insights_count": 0,
+                },
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }
+
+            # Create embedding for brain
+            brain_vector = embed_document(f"brain {vertical} {name} {description}")
+            qdrant = _get_qdrant_client()
+
+            # Generate UUID-format point ID for Qdrant (brain_id stored in payload)
+            point_id = generate_point_id(brain_id, brain_id)
+
+            qdrant.upsert(
+                collection_name="brains",
+                points=[
+                    PointStruct(
+                        id=point_id,
+                        vector=brain_vector,
+                        payload=payload,
+                    )
+                ],
+            )
+
+            output = {
+                "brain_id": brain_id,
+                "status": "draft",
+                "message": f"Brain '{name}' created for vertical '{vertical}'",
+            }
+
+            log_tool_result("create_brain", params, output, start)
+            return output
+
+        except ToolError:
+            raise
+        except Exception as e:
+            log_tool_error("create_brain", params, e, start)
+            _handle_qdrant_error(e)
+
+    @mcp.tool()
+    async def seed_icp_rules(
+        brain_id: str,
+        rules: list[dict],
+    ) -> dict:
+        """
+        Seed ICP (Ideal Customer Profile) rules to a brain.
+
+        Args:
+            brain_id: Target brain ID (must be draft or active)
+            rules: List of ICP rule definitions, each containing:
+                - name: Rule display name
+                - category: Rule category (firmographic, technographic, behavioral, intent)
+                - attribute: Attribute being evaluated
+                - criteria: Rule criteria description for semantic matching
+                - weight: Score weight (1-100)
+                - match_condition: Structured condition for rule matching
+                - is_knockout: Whether this rule is a knockout criterion
+                - reasoning: Explanation of why this rule matters
+
+        Returns:
+            SeedingResult with brain_id, collection, seeded_count, errors, message
+        """
+        start = time.perf_counter()
+        params = {"brain_id": brain_id, "rules_count": len(rules)}
+
+        try:
+            result = await _seed_items_to_collection(
+                brain_id=brain_id,
+                items=rules,
+                collection="icp_rules",
+                embed_field="criteria",
+                key_field="name",
+            )
+
+            output = {
+                "brain_id": result.brain_id,
+                "collection": result.collection,
+                "seeded_count": result.seeded_count,
+                "errors": [e.model_dump() for e in result.errors],
+                "message": result.message,
+            }
+
+            log_tool_result("seed_icp_rules", params, output, start)
+            return output
+
+        except ToolError:
+            raise
+        except Exception as e:
+            log_tool_error("seed_icp_rules", params, e, start)
+            _handle_qdrant_error(e)
+
+    @mcp.tool()
+    async def seed_templates(
+        brain_id: str,
+        templates: list[dict],
+    ) -> dict:
+        """
+        Seed response templates to a brain.
+
+        Args:
+            brain_id: Target brain ID (must be draft or active)
+            templates: List of template definitions, each containing:
+                - name: Template name
+                - intent: Reply type this template handles
+                - template_text: Template text with {{variable}} placeholders
+                - variables: List of variable names used in template
+                - tier: Response tier (1=auto-send, 2=draft, 3=human only)
+                - personalization_instructions: Instructions for personalizing
+
+        Returns:
+            SeedingResult with brain_id, collection, seeded_count, errors, message
+        """
+        start = time.perf_counter()
+        params = {"brain_id": brain_id, "templates_count": len(templates)}
+
+        try:
+            result = await _seed_items_to_collection(
+                brain_id=brain_id,
+                items=templates,
+                collection="response_templates",
+                embed_field="template_text",
+                key_field="name",
+            )
+
+            output = {
+                "brain_id": result.brain_id,
+                "collection": result.collection,
+                "seeded_count": result.seeded_count,
+                "errors": [e.model_dump() for e in result.errors],
+                "message": result.message,
+            }
+
+            log_tool_result("seed_templates", params, output, start)
+            return output
+
+        except ToolError:
+            raise
+        except Exception as e:
+            log_tool_error("seed_templates", params, e, start)
+            _handle_qdrant_error(e)
+
+    @mcp.tool()
+    async def seed_handlers(
+        brain_id: str,
+        handlers: list[dict],
+    ) -> dict:
+        """
+        Seed objection handlers to a brain.
+
+        Args:
+            brain_id: Target brain ID (must be draft or active)
+            handlers: List of handler definitions, each containing:
+                - objection_text: Example objection text for semantic matching
+                - objection_type: Objection category
+                - category: Subcategory within objection type
+                - response: Handler response text
+                - handler_strategy: Strategy description for this handler
+                - variables: Variable placeholders in response
+                - follow_up_actions: Recommended follow-up actions
+
+        Returns:
+            SeedingResult with brain_id, collection, seeded_count, errors, message
+        """
+        start = time.perf_counter()
+        params = {"brain_id": brain_id, "handlers_count": len(handlers)}
+
+        try:
+            result = await _seed_items_to_collection(
+                brain_id=brain_id,
+                items=handlers,
+                collection="objection_handlers",
+                embed_field="objection_text",
+                key_field="objection_text",
+            )
+
+            output = {
+                "brain_id": result.brain_id,
+                "collection": result.collection,
+                "seeded_count": result.seeded_count,
+                "errors": [e.model_dump() for e in result.errors],
+                "message": result.message,
+            }
+
+            log_tool_result("seed_handlers", params, output, start)
+            return output
+
+        except ToolError:
+            raise
+        except Exception as e:
+            log_tool_error("seed_handlers", params, e, start)
+            _handle_qdrant_error(e)
+
+    @mcp.tool()
+    async def seed_research(
+        brain_id: str,
+        documents: list[dict],
+    ) -> dict:
+        """
+        Seed market research documents to a brain.
+
+        Args:
+            brain_id: Target brain ID (must be draft or active)
+            documents: List of research document definitions, each containing:
+                - topic: Research topic/title
+                - content: Research content
+                - content_type: Type of research content
+                - source: Source attribution
+                - date: Research date (YYYY-MM-DD)
+                - key_facts: Key facts extracted from research
+                - source_url: Optional source URL
+
+        Returns:
+            SeedingResult with brain_id, collection, seeded_count, errors, message
+        """
+        start = time.perf_counter()
+        params = {"brain_id": brain_id, "documents_count": len(documents)}
+
+        try:
+            result = await _seed_items_to_collection(
+                brain_id=brain_id,
+                items=documents,
+                collection="market_research",
+                embed_field="content",
+                key_field="topic",
+            )
+
+            output = {
+                "brain_id": result.brain_id,
+                "collection": result.collection,
+                "seeded_count": result.seeded_count,
+                "errors": [e.model_dump() for e in result.errors],
+                "message": result.message,
+            }
+
+            log_tool_result("seed_research", params, output, start)
+            return output
+
+        except ToolError:
+            raise
+        except Exception as e:
+            log_tool_error("seed_research", params, e, start)
+            _handle_qdrant_error(e)
+
+    # ==========================================================================
+    # Brain Lifecycle Management - Status Transitions (003-brain-lifecycle US2)
+    # ==========================================================================
+
+    @mcp.tool()
+    async def update_brain_status(
+        brain_id: str,
+        status: str,
+    ) -> dict:
+        """
+        Update the status of a brain with transition validation.
+
+        Valid transitions per FR-013:
+        - draft → active
+        - active → archived
+        - archived → active
+
+        When activating a brain (FR-014, FR-015):
+        - Only one brain per vertical can be active at a time
+        - Any currently active brain in the same vertical is automatically archived
+
+        Args:
+            brain_id: Brain ID to update
+            status: New status ("draft", "active", or "archived")
+
+        Returns:
+            Result with brain_id, previous_status, new_status, deactivated_brain_id (if any), message
+        """
+        start = time.perf_counter()
+        params = {"brain_id": brain_id, "status": status}
+
+        try:
+            # Validate brain_id format
+            if not validate_brain_id(brain_id):
+                raise ToolError(f"Invalid brain_id format: {brain_id}")
+
+            # Validate status value
+            try:
+                new_status = BrainStatus(status)
+            except ValueError:
+                valid_statuses = [s.value for s in BrainStatus]
+                raise ToolError(
+                    f"Invalid status '{status}'. Must be one of: {valid_statuses}"
+                )
+
+            # Get current brain state
+            brain_data = await _validate_brain_exists(brain_id)
+            current_status = BrainStatus(brain_data.get("status", "draft"))
+            vertical = brain_data.get("vertical")
+
+            # Validate transition
+            if not validate_status_transition(current_status, new_status):
+                valid_targets = [s.value for s in VALID_TRANSITIONS.get(current_status, [])]
+                raise ToolError(
+                    f"Invalid transition from '{current_status.value}' to '{new_status.value}'. "
+                    f"Valid transitions from '{current_status.value}': {valid_targets}"
+                )
+
+            qdrant = _get_qdrant_client()
+            deactivated_brain_id = None
+
+            # If activating, archive any currently active brain in the same vertical
+            if new_status == BrainStatus.ACTIVE:
+                results, _ = qdrant.scroll(
+                    collection_name="brains",
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(key="vertical", match=MatchValue(value=vertical)),
+                            FieldCondition(key="status", match=MatchValue(value="active")),
+                        ]
+                    ),
+                    limit=10,
+                    with_payload=True,
+                )
+
+                # Archive any active brains (should be at most one, but handle multiples)
+                for point in results:
+                    other_brain_id = point.payload.get("id")
+                    if other_brain_id and other_brain_id != brain_id:
+                        # Update the other brain to archived
+                        updated_payload = {**point.payload}
+                        updated_payload["status"] = BrainStatus.ARCHIVED.value
+                        updated_payload["updated_at"] = time.strftime(
+                            "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                        )
+
+                        # Get point_id for the other brain
+                        other_point_id = generate_point_id(other_brain_id, other_brain_id)
+                        other_vector = embed_document(
+                            f"brain {updated_payload.get('vertical')} "
+                            f"{updated_payload.get('name')} {updated_payload.get('description')}"
+                        )
+
+                        qdrant.upsert(
+                            collection_name="brains",
+                            points=[
+                                PointStruct(
+                                    id=other_point_id,
+                                    vector=other_vector,
+                                    payload=updated_payload,
+                                )
+                            ],
+                        )
+                        deactivated_brain_id = other_brain_id
+
+            # Update the target brain status
+            updated_payload = {**brain_data}
+            updated_payload["status"] = new_status.value
+            updated_payload["updated_at"] = time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+            )
+
+            point_id = generate_point_id(brain_id, brain_id)
+            brain_vector = embed_document(
+                f"brain {updated_payload.get('vertical')} "
+                f"{updated_payload.get('name')} {updated_payload.get('description')}"
+            )
+
+            qdrant.upsert(
+                collection_name="brains",
+                points=[
+                    PointStruct(
+                        id=point_id,
+                        vector=brain_vector,
+                        payload=updated_payload,
+                    )
+                ],
+            )
+
+            output = {
+                "brain_id": brain_id,
+                "previous_status": current_status.value,
+                "new_status": new_status.value,
+                "deactivated_brain_id": deactivated_brain_id,
+                "message": f"Brain '{brain_id}' status updated from '{current_status.value}' to '{new_status.value}'",
+            }
+
+            log_tool_result("update_brain_status", params, output, start)
+            return output
+
+        except ToolError:
+            raise
+        except Exception as e:
+            log_tool_error("update_brain_status", params, e, start)
+            _handle_qdrant_error(e)
+
+    # ==========================================================================
+    # Brain Analytics Tools (003-brain-lifecycle US3)
+    # ==========================================================================
+
+    @mcp.tool()
+    async def get_brain_stats(brain_id: str) -> dict:
+        """
+        Get content statistics for a brain.
+
+        Returns counts of all content types stored in the brain.
+
+        Args:
+            brain_id: Brain ID to get stats for
+
+        Returns:
+            Stats with brain_id, icp_rules_count, templates_count,
+            handlers_count, research_docs_count, insights_count
+        """
+        start = time.perf_counter()
+        params = {"brain_id": brain_id}
+
+        try:
+            # Validate brain exists
+            await _validate_brain_exists(brain_id)
+
+            qdrant = _get_qdrant_client()
+
+            # Count items in each collection for this brain
+            collections = [
+                ("icp_rules", "icp_rules_count"),
+                ("response_templates", "templates_count"),
+                ("objection_handlers", "handlers_count"),
+                ("market_research", "research_docs_count"),
+                ("insights", "insights_count"),
+            ]
+
+            counts = {}
+            for collection, count_key in collections:
+                try:
+                    results, _ = qdrant.scroll(
+                        collection_name=collection,
+                        scroll_filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="brain_id", match=MatchValue(value=brain_id)
+                                )
+                            ]
+                        ),
+                        limit=1000,  # Count up to 1000 items
+                        with_payload=False,
+                    )
+                    counts[count_key] = len(results)
+                except Exception:
+                    # Collection may not exist or other error, default to 0
+                    counts[count_key] = 0
+
+            output = {
+                "brain_id": brain_id,
+                **counts,
+            }
+
+            log_tool_result("get_brain_stats", params, output, start)
+            return output
+
+        except ToolError:
+            raise
+        except Exception as e:
+            log_tool_error("get_brain_stats", params, e, start)
+            _handle_qdrant_error(e)
+
+    @mcp.tool()
+    async def get_brain_report(brain_id: str) -> dict:
+        """
+        Get a detailed report for a brain including completeness and content details.
+
+        Completeness is calculated as the percentage of content types present
+        (0.0 = no content, 1.0 = all 4 content types have at least 1 item).
+
+        Args:
+            brain_id: Brain ID to generate report for
+
+        Returns:
+            Report with brain_id, name, vertical, status, completeness,
+            content_details (per-collection stats with last_updated),
+            created_at, updated_at, message
+        """
+        from .models import BrainStatsResult, calculate_completeness
+
+        start = time.perf_counter()
+        params = {"brain_id": brain_id}
+
+        try:
+            # Get brain data
+            brain_data = await _validate_brain_exists(brain_id)
+
+            qdrant = _get_qdrant_client()
+
+            # Get content details for each collection
+            content_collections = [
+                ("icp_rules", "icp_rules"),
+                ("response_templates", "response_templates"),
+                ("objection_handlers", "objection_handlers"),
+                ("market_research", "market_research"),
+            ]
+
+            content_details = []
+            stats_for_completeness = {
+                "icp_rules_count": 0,
+                "templates_count": 0,
+                "handlers_count": 0,
+                "research_docs_count": 0,
+                "insights_count": 0,
+            }
+
+            stats_key_map = {
+                "icp_rules": "icp_rules_count",
+                "response_templates": "templates_count",
+                "objection_handlers": "handlers_count",
+                "market_research": "research_docs_count",
+            }
+
+            for collection, display_name in content_collections:
+                try:
+                    results, _ = qdrant.scroll(
+                        collection_name=collection,
+                        scroll_filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="brain_id", match=MatchValue(value=brain_id)
+                                )
+                            ]
+                        ),
+                        limit=1000,
+                        with_payload=True,
+                    )
+
+                    count = len(results)
+
+                    # Find most recent updated_at
+                    last_updated = None
+                    for result in results:
+                        item_updated = result.payload.get("updated_at")
+                        if item_updated:
+                            if last_updated is None or item_updated > last_updated:
+                                last_updated = item_updated
+
+                    content_details.append({
+                        "collection": display_name,
+                        "last_updated": last_updated,
+                        "count": count,
+                    })
+
+                    # Update stats for completeness calculation
+                    if collection in stats_key_map:
+                        stats_for_completeness[stats_key_map[collection]] = count
+
+                except Exception:
+                    content_details.append({
+                        "collection": display_name,
+                        "last_updated": None,
+                        "count": 0,
+                    })
+
+            # Calculate completeness
+            stats_result = BrainStatsResult(
+                brain_id=brain_id,
+                **stats_for_completeness,
+            )
+            completeness = calculate_completeness(stats_result)
+
+            output = {
+                "brain_id": brain_id,
+                "name": brain_data.get("name"),
+                "vertical": brain_data.get("vertical"),
+                "status": brain_data.get("status"),
+                "completeness": completeness,
+                "content_details": content_details,
+                "created_at": brain_data.get("created_at"),
+                "updated_at": brain_data.get("updated_at"),
+                "message": f"Brain report generated with {completeness * 100:.0f}% content completeness",
+            }
+
+            log_tool_result("get_brain_report", params, output, start)
+            return output
+
+        except ToolError:
+            raise
+        except Exception as e:
+            log_tool_error("get_brain_report", params, e, start)
+            _handle_qdrant_error(e)
+
+    # ==========================================================================
+    # Brain Deletion Tool (003-brain-lifecycle US4)
+    # ==========================================================================
+
+    @mcp.tool()
+    async def delete_brain(
+        brain_id: str,
+        confirm: bool = False,
+    ) -> dict:
+        """
+        Delete a brain and all its associated content (cascade delete).
+
+        Constraints per FR-016 and FR-017:
+        - Active brains CANNOT be deleted (archive first)
+        - Only draft or archived brains can be deleted
+        - Requires confirm=True to prevent accidental deletion
+        - Cascades to delete all content (ICP rules, templates, handlers, research)
+
+        Args:
+            brain_id: Brain ID to delete (must be draft or archived)
+            confirm: Confirmation flag (must be True to proceed)
+
+        Returns:
+            Result with brain_id, deleted_content (counts per collection), message
+        """
+        start = time.perf_counter()
+        params = {"brain_id": brain_id, "confirm": confirm}
+
+        try:
+            # Require confirmation
+            if not confirm:
+                raise ToolError(
+                    "Deletion requires confirm=True. This action cannot be undone."
+                )
+
+            # Get brain data and validate existence
+            brain_data = await _validate_brain_exists(brain_id)
+            status = brain_data.get("status", "")
+
+            # Prevent deletion of active brains
+            if status == BrainStatus.ACTIVE.value:
+                raise ToolError(
+                    f"Cannot delete active brain '{brain_id}'. "
+                    "Archive the brain first before deletion."
+                )
+
+            qdrant = _get_qdrant_client()
+
+            # Collections to cascade delete
+            content_collections = [
+                ("icp_rules", "icp_rules"),
+                ("response_templates", "response_templates"),
+                ("objection_handlers", "objection_handlers"),
+                ("market_research", "market_research"),
+                ("insights", "insights"),
+            ]
+
+            deleted_counts = {}
+
+            # Delete content from each collection
+            for collection, display_name in content_collections:
+                try:
+                    # First, get the point IDs for this brain
+                    results, _ = qdrant.scroll(
+                        collection_name=collection,
+                        scroll_filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="brain_id", match=MatchValue(value=brain_id)
+                                )
+                            ]
+                        ),
+                        limit=10000,
+                        with_payload=False,
+                    )
+
+                    count = len(results)
+                    deleted_counts[display_name] = count
+
+                    if count > 0:
+                        point_ids = [str(r.id) for r in results]
+                        qdrant.delete(
+                            collection_name=collection,
+                            points_selector=point_ids,
+                        )
+
+                except Exception:
+                    # Collection may not exist, default to 0
+                    deleted_counts[display_name] = 0
+
+            # Delete the brain itself by querying for actual point ID
+            try:
+                brain_results, _ = qdrant.scroll(
+                    collection_name="brains",
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(key="id", match=MatchValue(value=brain_id))
+                        ]
+                    ),
+                    limit=1,
+                    with_payload=False,
+                )
+
+                if brain_results:
+                    actual_point_id = str(brain_results[0].id)
+                    qdrant.delete(
+                        collection_name="brains",
+                        points_selector=[actual_point_id],
+                    )
+            except Exception as e:
+                raise ToolError(f"Failed to delete brain record: {e}")
+
+            total_deleted = sum(deleted_counts.values())
+
+            output = {
+                "brain_id": brain_id,
+                "deleted_content": deleted_counts,
+                "message": f"Brain '{brain_id}' and {total_deleted} content items deleted successfully",
+            }
+
+            log_tool_result("delete_brain", params, output, start)
+            return output
+
+        except ToolError:
+            raise
+        except Exception as e:
+            log_tool_error("delete_brain", params, e, start)
             _handle_qdrant_error(e)
