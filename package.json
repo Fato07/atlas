@@ -25,9 +25,9 @@
     "db:init": "bun run scripts/init-qdrant.ts",
     "mcp:dev": "cd mcp-servers && uv run python -m atlas_gtm_mcp",
     "mcp:test": "cd mcp-servers && uv run pytest",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
     "setup": "bun install && cd mcp-servers && uv sync"
   },
   "devDependencies": {

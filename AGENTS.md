@@ -6,6 +6,8 @@
 
 Atlas GTM - AI-first GTM Operations System for CodesDevs. Same agents, different brains for rapid market validation across verticals (defense, healthcare, fintech, etc.).
 
+Atlas GTM is a go-to-market automation platform using Claude, Qdrant, n8n, and custom MCP servers. Validates new markets with 80% less manual work through AI automation.
+
 ## Build & Test
 
 ```bash
@@ -42,14 +44,14 @@ bun run seed:brain             # Seed a new brain
 
 ```bash
 # Start all services
-docker compose up -d
+docker-compose up -d
 
 # View logs
-docker compose logs -f qdrant  # Specific service
-docker compose logs -f         # All services
+docker-compose logs -f qdrant  # Specific service
+docker-compose logs -f         # All services
 
 # Stop services
-docker compose down
+docker-compose down
 ```
 
 ## Architecture
@@ -137,7 +139,7 @@ Production agent patterns:
 bun test:unit
 
 # Integration tests (need Docker running)
-docker compose up -d qdrant
+docker-compose up -d qdrant
 bun test:integration
 
 # Single file
@@ -183,6 +185,22 @@ test: add integration tests for reply handler
 - State files contain lead PII - gitignored
 - Never log full lead records, only IDs
 
+
+## Key Specs
+
+Read these before working on specific components:
+
+| Component | Spec File | Priority |
+|-----------|-----------|----------|
+| Context Engineering | `specs/context-engineering.md` | **Read First** |
+| Knowledge Base | `specs/knowledge-base.md` | High |
+| Lead Scorer Agent | `specs/agent-lead-scorer.md` | High |
+| Reply Handler Agent | `specs/agent-reply-handler.md` | High |
+| Meeting Prep Agent | `specs/agent-meeting-prep.md` | Medium |
+| MCP Servers | `specs/mcp-servers.md` | High |
+| Brain Swapping | `specs/brain-swapping.md` | Medium |
+| Frontend UI | `specs/frontend-ui.md` | Low (Phase 2) |
+
 ## Allowed Without Prompt
 
 These operations are safe to run automatically:
@@ -200,7 +218,7 @@ These operations are safe to run automatically:
 These require confirmation:
 
 - `bun test` (full suite - can be slow)
-- `docker compose up/down`
+- `docker-compose up/down`
 - `git push`
 - Delete any files
 - Modify `.env` or credentials

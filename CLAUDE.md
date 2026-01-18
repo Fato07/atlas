@@ -2,17 +2,53 @@
 
 > Instructions for Claude Code when working on atlas-gtm
 
+> **Important**: Also read `AGENTS.md` - it follows the [AGENTS.md open standard](https://agents.md/) and contains build commands, test commands, and code conventions.
+
 ## Project Overview
 
 Atlas GTM is an AI-first GTM Operations System for CodesDevs. It uses swappable "brains" (vertical-specific knowledge bases) to enable rapid market validation with 80% less manual work.
 
-**Tech Stack:**
+**Key Architecture Concept**: Same agents, different "brains" (KB contexts) for rapid multi-vertical market validation.
+
+## Core Principles
+
+### 1. Spec-Driven Development
+- Every component has a spec in `/specs/`
+- Read the spec BEFORE implementing
+- Specs are contracts - follow them precisely
+- Update specs if requirements change (discuss first)
+
+### 2. Tech Stack
 - Runtime: Bun (not npm/node)
 - Agents: TypeScript with @anthropic-ai/sdk
 - MCP Servers: Python with FastMCP
 - Vector DB: Qdrant
 - Caching: Upstash Redis (serverless)
 - Workflows: n8n
+
+### 3. Documentation Lookup (Context7 MCP)
+
+**ALWAYS use Context7 MCP** to fetch up-to-date documentation when implementing features for these stacks:
+
+| Library | Context7 ID | Use For |
+|---------|-------------|---------|
+| Qdrant (docs) | `/websites/qdrant_tech` | Collection creation, vector search, filtering, payload indexes |
+| Qdrant (JS client) | `/qdrant/qdrant-js` | TypeScript/JavaScript client API |
+| Upstash Redis | `/upstash/redis-js` | Caching patterns, serverless Redis REST API |
+| Voyage AI | `/websites/voyageai` | Embedding API, input types, rate limits |
+| n8n | `/n8n-io/n8n-docs` | Workflow nodes, webhook configuration |
+| FastMCP | `/websites/gofastmcp` | MCP server patterns, tool decorators, deployment |
+| Bun | `/oven-sh/bun` | Runtime APIs, test runner, package management |
+
+**Workflow**:
+1. Before implementing: `resolve-library-id` → `get-library-docs` with specific query
+2. Extract relevant patterns and code examples
+3. Apply with proper error handling and project conventions
+
+Don't rely on stale knowledge - always pull fresh docs for API specifics, especially for:
+- Qdrant collection schemas and index configuration
+- Upstash Redis REST API patterns
+- Voyage AI embedding parameters and limits
 
 ## Quick Commands
 
@@ -55,6 +91,18 @@ const results = await qdrant.search({
 ```
 
 ### 2. Context Engineering
+
+Before implementing any agent, read `specs/context-engineering.md`. Key principles:
+
+1. **KV-Cache Optimization** - 10x cost difference between cached/uncached tokens
+2. **Append-Only Context** - Never modify earlier context
+3. **Sub-Agent Isolation** - Spawn sub-agents for data gathering, return distilled results only
+4. **Context Budgets** - Lead Scorer: 80k, Reply Handler: 60k, Meeting Prep: 100k tokens
+5. **Session Handoff** - Maintain state files for long-running tasks
+
+See research sources:
+- [Manus AI Context Engineering](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus)
+- [Anthropic Agent Harness](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)
 
 Production agents follow strict patterns for KV-cache optimization:
 
@@ -159,3 +207,10 @@ bun run seed:brain --vertical=fintech --source=./data/fintech-kb.json
 - Don't put timestamps at start of system prompts
 - Don't return raw API responses from sub-agents
 - Don't commit `.env` or state files
+
+## Active Technologies
+- TypeScript 5.4+ (Bun runtime), Python 3.11+ (MCP servers) + @qdrant/js-client-rest, voyageai (Python), Docker Compose v2 (001-gtm-infra)
+- Qdrant (vector DB), PostgreSQL (n8n metadata), Docker volumes (001-gtm-infra)
+
+## Recent Changes
+- 001-gtm-infra: Added TypeScript 5.4+ (Bun runtime), Python 3.11+ (MCP servers) + @qdrant/js-client-rest, voyageai (Python), Docker Compose v2

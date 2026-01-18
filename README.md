@@ -39,7 +39,7 @@ Required API keys:
 
 ```bash
 # Start Qdrant (vector database)
-docker compose up -d qdrant
+docker-compose up -d qdrant
 
 # Initialize database collections
 bun run db:init
@@ -160,9 +160,9 @@ bun run lint               # ESLint
 bun run format             # Prettier
 
 # Docker
-docker compose up -d       # Start all services
-docker compose down        # Stop all services
-docker compose logs -f     # View logs
+docker-compose up -d       # Start all services
+docker-compose down        # Stop all services
+docker-compose logs -f     # View logs
 ```
 
 ## Project Structure

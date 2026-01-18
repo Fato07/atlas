@@ -16,7 +16,7 @@ def create_server() -> FastMCP:
     """Create and configure the Atlas GTM MCP server."""
     mcp = FastMCP(
         name="atlas-gtm-mcp",
-        description="MCP server for Atlas GTM - Knowledge Base, CRM, and Email tools",
+        instructions="MCP server for Atlas GTM - Knowledge Base, CRM, and Email tools",
     )
 
     # Register all tool groups
@@ -29,3 +29,7 @@ def create_server() -> FastMCP:
 
 # For direct execution
 server = create_server()
+
+if __name__ == "__main__":
+    # Run with HTTP transport for Docker/daemon mode
+    server.run(transport="http", host="0.0.0.0", port=8000)

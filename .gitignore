@@ -68,3 +68,7 @@ n8n_data/
 *.key
 credentials*.json
 secrets*.json
+
+.claude/*
+.specify/*
+specs/*
