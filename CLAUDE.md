@@ -211,6 +211,10 @@ bun run seed:brain --vertical=fintech --source=./data/fintech-kb.json
 ## Active Technologies
 - TypeScript 5.4+ (Bun runtime), Python 3.11+ (MCP servers) + @qdrant/js-client-rest, voyageai (Python), Docker Compose v2 (001-gtm-infra)
 - Qdrant (vector DB), PostgreSQL (n8n metadata), Docker volumes (001-gtm-infra)
+- Python 3.11+ + FastMCP ≥0.4.0, qdrant-client ≥1.9.0, voyageai ≥0.2.0, tenacity, pydantic ≥2.7.0, structlog (for JSON logging) (002-qdrant-mcp)
+- Qdrant (vector DB at localhost:6333) - 7 collections: brains, icp_rules, response_templates, objection_handlers, market_research, insights, verticals (002-qdrant-mcp)
+- Python 3.11+ (MCP servers), TypeScript 5.4+ (seeding script - refactor target) + FastMCP ≥0.4.0, qdrant-client ≥1.9.0, voyageai ≥0.2.0, pydantic ≥2.7.0, tenacity, structlog (003-brain-lifecycle)
+- Qdrant (vector DB at localhost:6333) - existing collections: brains, icp_rules, response_templates, objection_handlers, market_research (003-brain-lifecycle)
 
 ## Recent Changes
 - 001-gtm-infra: Added TypeScript 5.4+ (Bun runtime), Python 3.11+ (MCP servers) + @qdrant/js-client-rest, voyageai (Python), Docker Compose v2

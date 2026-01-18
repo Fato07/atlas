@@ -63,6 +63,9 @@ def mock_voyage_embeddings(monkeypatch):
     def mock_embed_document(text: str) -> list[float]:
         return deterministic_embedding(text)
 
+    def mock_embed_batch(texts: list[str], input_type: str = "document") -> list[list[float]]:
+        return [deterministic_embedding(text) for text in texts]
+
     # Mock at module level where functions are imported
     monkeypatch.setattr(
         "atlas_gtm_mcp.qdrant.embeddings.embed_query",
@@ -72,6 +75,10 @@ def mock_voyage_embeddings(monkeypatch):
         "atlas_gtm_mcp.qdrant.embeddings.embed_document",
         mock_embed_document,
     )
+    monkeypatch.setattr(
+        "atlas_gtm_mcp.qdrant.embeddings.embed_batch",
+        mock_embed_batch,
+    )
     # Also mock at the __init__ level where they're used
     monkeypatch.setattr(
         "atlas_gtm_mcp.qdrant.embed_query",
@@ -80,6 +87,10 @@ def mock_voyage_embeddings(monkeypatch):
     monkeypatch.setattr(
         "atlas_gtm_mcp.qdrant.embed_document",
         mock_embed_document,
+    )
+    monkeypatch.setattr(
+        "atlas_gtm_mcp.qdrant.embed_batch",
+        mock_embed_batch,
     )
     # Also mock at quality_gates module level
     monkeypatch.setattr(
@@ -382,3 +393,322 @@ def _cleanup_test_data(client):
         )
     except Exception:
         pass
+
+
+# =============================================================================
+# Brain Lifecycle Test Fixtures (003-brain-lifecycle)
+# =============================================================================
+
+# Constants for lifecycle tests
+TEST_LIFECYCLE_BRAIN_ID = "brain_lifecycle_test_1705590000000"
+TEST_LIFECYCLE_VERTICAL = "lifecycle_test"
+
+
+@pytest.fixture
+def lifecycle_brain_id():
+    """Return the standard lifecycle test brain ID."""
+    return TEST_LIFECYCLE_BRAIN_ID
+
+
+@pytest.fixture
+def lifecycle_vertical():
+    """Return the standard lifecycle test vertical."""
+    return TEST_LIFECYCLE_VERTICAL
+
+
+@pytest.fixture
+def draft_brain_factory(qdrant_client):
+    """Factory fixture to create draft brains for testing.
+
+    Returns a function that creates a draft brain with given parameters.
+    Automatically cleans up created brains after the test.
+    """
+    created_brain_ids = []
+
+    def _create_draft_brain(
+        brain_id: str,
+        vertical: str,
+        name: str = "Test Draft Brain",
+        description: str = "A brain for testing",
+    ) -> str:
+        brain_point = PointStruct(
+            id=string_to_uuid(brain_id),
+            vector=deterministic_embedding(f"brain {vertical}"),
+            payload={
+                "id": brain_id,
+                "name": name,
+                "vertical": vertical,
+                "version": "1.0",
+                "status": "draft",
+                "description": description,
+                "config": {
+                    "default_tier_thresholds": {"tier1": 90, "tier2": 70, "tier3": 50},
+                    "auto_response_enabled": False,
+                    "learning_enabled": True,
+                    "quality_gate_threshold": 0.7,
+                },
+                "stats": {
+                    "icp_rules_count": 0,
+                    "templates_count": 0,
+                    "handlers_count": 0,
+                    "research_docs_count": 0,
+                    "insights_count": 0,
+                },
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        qdrant_client.upsert(collection_name="brains", points=[brain_point])
+        created_brain_ids.append((brain_id, vertical))
+        return brain_id
+
+    yield _create_draft_brain
+
+    # Cleanup created brains after test
+    for brain_id, vertical in created_brain_ids:
+        _cleanup_brain_lifecycle_data(qdrant_client, brain_id, vertical)
+
+
+@pytest.fixture
+def active_brain_factory(qdrant_client):
+    """Factory fixture to create active brains for testing.
+
+    Returns a function that creates an active brain with given parameters.
+    Automatically cleans up created brains after the test.
+    """
+    created_brain_ids = []
+
+    def _create_active_brain(
+        brain_id: str,
+        vertical: str,
+        name: str = "Test Active Brain",
+        description: str = "An active brain for testing",
+    ) -> str:
+        brain_point = PointStruct(
+            id=string_to_uuid(brain_id),
+            vector=deterministic_embedding(f"brain {vertical}"),
+            payload={
+                "id": brain_id,
+                "name": name,
+                "vertical": vertical,
+                "version": "1.0",
+                "status": "active",
+                "description": description,
+                "config": {
+                    "default_tier_thresholds": {"tier1": 90, "tier2": 70, "tier3": 50},
+                    "auto_response_enabled": True,
+                    "learning_enabled": True,
+                    "quality_gate_threshold": 0.8,
+                },
+                "stats": {
+                    "icp_rules_count": 0,
+                    "templates_count": 0,
+                    "handlers_count": 0,
+                    "research_docs_count": 0,
+                    "insights_count": 0,
+                },
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        qdrant_client.upsert(collection_name="brains", points=[brain_point])
+        created_brain_ids.append((brain_id, vertical))
+        return brain_id
+
+    yield _create_active_brain
+
+    # Cleanup created brains after test
+    for brain_id, vertical in created_brain_ids:
+        _cleanup_brain_lifecycle_data(qdrant_client, brain_id, vertical)
+
+
+@pytest.fixture
+def archived_brain_factory(qdrant_client):
+    """Factory fixture to create archived brains for testing.
+
+    Returns a function that creates an archived brain with given parameters.
+    Automatically cleans up created brains after the test.
+    """
+    created_brain_ids = []
+
+    def _create_archived_brain(
+        brain_id: str,
+        vertical: str,
+        name: str = "Test Archived Brain",
+        description: str = "An archived brain for testing",
+    ) -> str:
+        brain_point = PointStruct(
+            id=string_to_uuid(brain_id),
+            vector=deterministic_embedding(f"brain {vertical}"),
+            payload={
+                "id": brain_id,
+                "name": name,
+                "vertical": vertical,
+                "version": "1.0",
+                "status": "archived",
+                "description": description,
+                "config": {
+                    "default_tier_thresholds": {"tier1": 90, "tier2": 70, "tier3": 50},
+                    "auto_response_enabled": False,
+                    "learning_enabled": False,
+                    "quality_gate_threshold": 0.7,
+                },
+                "stats": {
+                    "icp_rules_count": 5,
+                    "templates_count": 3,
+                    "handlers_count": 2,
+                    "research_docs_count": 4,
+                    "insights_count": 10,
+                },
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        qdrant_client.upsert(collection_name="brains", points=[brain_point])
+        created_brain_ids.append((brain_id, vertical))
+        return brain_id
+
+    yield _create_archived_brain
+
+    # Cleanup created brains after test
+    for brain_id, vertical in created_brain_ids:
+        _cleanup_brain_lifecycle_data(qdrant_client, brain_id, vertical)
+
+
+@pytest.fixture
+def clean_lifecycle_data(qdrant_client, lifecycle_brain_id, lifecycle_vertical):
+    """Clean up lifecycle test data before and after test.
+
+    Use this fixture for tests that need a clean slate.
+    """
+    _cleanup_brain_lifecycle_data(qdrant_client, lifecycle_brain_id, lifecycle_vertical)
+    yield
+    _cleanup_brain_lifecycle_data(qdrant_client, lifecycle_brain_id, lifecycle_vertical)
+
+
+def _cleanup_brain_lifecycle_data(client, brain_id: str, vertical: str):
+    """Clean up all data associated with a lifecycle test brain."""
+    collections = [
+        "icp_rules",
+        "response_templates",
+        "objection_handlers",
+        "market_research",
+        "insights",
+    ]
+
+    # Delete content scoped to brain_id
+    for collection in collections:
+        try:
+            client.delete(
+                collection_name=collection,
+                points_selector=Filter(
+                    must=[FieldCondition(key="brain_id", match=MatchValue(value=brain_id))]
+                ),
+            )
+        except Exception:
+            pass
+
+    # Delete the brain by both ID and vertical (to catch any orphaned brains)
+    try:
+        client.delete(
+            collection_name="brains",
+            points_selector=Filter(
+                must=[FieldCondition(key="id", match=MatchValue(value=brain_id))]
+            ),
+        )
+    except Exception:
+        pass
+
+    try:
+        client.delete(
+            collection_name="brains",
+            points_selector=Filter(
+                must=[FieldCondition(key="vertical", match=MatchValue(value=vertical))]
+            ),
+        )
+    except Exception:
+        pass
+
+
+# Sample test data for seeding operations
+SAMPLE_ICP_RULES = [
+    {
+        "name": "Large Enterprise",
+        "category": "firmographic",
+        "attribute": "company_size",
+        "criteria": "Companies with 1000+ employees in defense sector",
+        "weight": 25,
+        "match_condition": {"min_employees": 1000},
+        "is_knockout": False,
+        "reasoning": "Large enterprises have budget for our offering",
+    },
+    {
+        "name": "Government Contractor",
+        "category": "firmographic",
+        "attribute": "customer_type",
+        "criteria": "Active DoD or federal government contractor",
+        "weight": 30,
+        "match_condition": {"has_gov_contract": True},
+        "is_knockout": False,
+        "reasoning": "Government contractors are our primary target",
+    },
+]
+
+SAMPLE_TEMPLATES = [
+    {
+        "name": "Positive Interest Response",
+        "intent": "positive_interest",
+        "template_text": "Hi {{first_name}}, Thanks for your interest! I'd love to show you how we've helped companies like {{company_name}}.",
+        "variables": ["first_name", "company_name"],
+        "tier": 1,
+        "personalization_instructions": "Be enthusiastic and mention specific value propositions",
+    },
+]
+
+SAMPLE_HANDLERS = [
+    {
+        "objection_text": "We don't have budget right now",
+        "objection_type": "pricing",
+        "category": "budget_constraint",
+        "response": "I understand budget is always a consideration. Many of our customers started with a pilot program...",
+        "handler_strategy": "Acknowledge, offer pilot, align with budget cycles",
+        "variables": [],
+        "follow_up_actions": ["Send pilot program details"],
+    },
+]
+
+SAMPLE_RESEARCH = [
+    {
+        "topic": "Defense Procurement Cycles",
+        "content": "Defense contractors operate on government fiscal year cycles. Budget decisions are typically made in Q4, with 18-month procurement cycles common for major programs.",
+        "content_type": "market_overview",
+        "source": "Industry Research 2024",
+        "date": "2024-01-15",
+        "key_facts": ["Budget decisions in Q4", "18-month procurement cycles"],
+        "source_url": "https://example.com/defense-research",
+    },
+]
+
+
+@pytest.fixture
+def sample_icp_rules():
+    """Sample ICP rules for seeding tests."""
+    return SAMPLE_ICP_RULES.copy()
+
+
+@pytest.fixture
+def sample_templates():
+    """Sample templates for seeding tests."""
+    return SAMPLE_TEMPLATES.copy()
+
+
+@pytest.fixture
+def sample_handlers():
+    """Sample handlers for seeding tests."""
+    return SAMPLE_HANDLERS.copy()
+
+
+@pytest.fixture
+def sample_research():
+    """Sample research for seeding tests."""
+    return SAMPLE_RESEARCH.copy()
