@@ -1,0 +1,115 @@
+{
+  "vertical": "defense",
+  "description": "Defense & aerospace technology for government contractors and defense tech startups",
+  "icp_rules": [
+    {
+      "name": "Government Contractor Status",
+      "criteria": "Company is a registered government contractor with active contracts",
+      "weight": 5,
+      "match_condition": "has_government_contracts = true"
+    },
+    {
+      "name": "Security Clearance Capability",
+      "criteria": "Company has facility clearance or employees with security clearances",
+      "weight": 4,
+      "match_condition": "security_clearance_level IN ('secret', 'top_secret', 'sci')"
+    },
+    {
+      "name": "Defense Industry Vertical",
+      "criteria": "Company operates in defense-adjacent industry",
+      "weight": 4,
+      "match_condition": "industry IN ('defense', 'aerospace', 'cybersecurity', 'intelligence')"
+    },
+    {
+      "name": "Decision Maker Title",
+      "criteria": "Contact is a decision maker or key influencer",
+      "weight": 3,
+      "match_condition": "title CONTAINS ('CEO', 'CTO', 'VP', 'Director', 'Program Manager')"
+    },
+    {
+      "name": "Company Size",
+      "criteria": "Company size is within target range (50-5000 employees)",
+      "weight": 3,
+      "match_condition": "employee_count BETWEEN 50 AND 5000"
+    }
+  ],
+  "response_templates": [
+    {
+      "name": "Interested Follow-up",
+      "intent": "interested",
+      "template": "Hi {{first_name}},\n\nThank you for your interest in {{product_name}}. I'd love to learn more about {{company_name}}'s current challenges with {{pain_point}}.\n\nWould you have 20 minutes this week for a quick call? I can share some specific examples of how we've helped similar defense contractors.\n\nBest,\n{{sender_name}}",
+      "variables": ["first_name", "product_name", "company_name", "pain_point", "sender_name"]
+    },
+    {
+      "name": "Meeting Confirmation",
+      "intent": "meeting_request",
+      "template": "Hi {{first_name}},\n\nGreat! I've sent over a calendar invite for {{meeting_time}}. Looking forward to discussing how we can help {{company_name}}.\n\nIn the meantime, feel free to check out our case study with {{reference_customer}} - similar situation to yours.\n\nBest,\n{{sender_name}}",
+      "variables": ["first_name", "meeting_time", "company_name", "reference_customer", "sender_name"]
+    },
+    {
+      "name": "Question Response",
+      "intent": "question",
+      "template": "Hi {{first_name}},\n\nGreat question about {{topic}}.\n\n{{answer}}\n\nWould it be helpful to schedule a quick call to dive deeper into this? I can also connect you with our technical team if that would be useful.\n\nBest,\n{{sender_name}}",
+      "variables": ["first_name", "topic", "answer", "sender_name"]
+    },
+    {
+      "name": "Objection Handler",
+      "intent": "objection",
+      "template": "Hi {{first_name}},\n\nI completely understand your concern about {{objection_topic}}. Many of our current customers had similar hesitations initially.\n\n{{objection_response}}\n\nWould you be open to a brief conversation? I can share specific examples of how we addressed this for {{reference_customer}}.\n\nBest,\n{{sender_name}}",
+      "variables": ["first_name", "objection_topic", "objection_response", "reference_customer", "sender_name"]
+    }
+  ],
+  "objection_handlers": [
+    {
+      "objection": "We already have a solution in place",
+      "response": "That's great that you have something in place. Many of our customers came to us with existing solutions but found they needed something more specialized for government/defense requirements. We often complement existing tools rather than replace them entirely. Would it be helpful to understand where we typically add value alongside existing solutions?",
+      "category": "competition"
+    },
+    {
+      "objection": "We don't have the budget right now",
+      "response": "I completely understand budget constraints, especially in the current climate. Many defense contractors actually find that our solution reduces overall costs by 30-40% through automation and compliance streamlining. We also offer flexible pricing aligned with contract cycles. Would it make sense to at least understand the potential ROI for a future budget cycle?",
+      "category": "budget"
+    },
+    {
+      "objection": "We need to focus on our current contracts",
+      "response": "Absolutely - execution on current contracts is priority one. That's actually where we help most. Our solution is designed to reduce the operational burden on existing programs while improving compliance posture. Many customers tell us it actually freed up capacity they didn't know they had. Would a 15-minute overview be worth your time?",
+      "category": "timing"
+    },
+    {
+      "objection": "I need to check with our security/compliance team",
+      "response": "That's exactly the right approach for any new tool in the defense space. We're fully FedRAMP authorized and have ATOs with several major agencies. I can provide our security documentation package and even arrange a direct conversation between our security team and yours. Would that be helpful?",
+      "category": "security"
+    },
+    {
+      "objection": "The decision isn't mine to make",
+      "response": "I appreciate you being upfront about that. Would it be helpful if I prepared some materials specifically for the decision maker? I can tailor them to address their likely concerns. Also, would you be open to including them in a brief call? Sometimes having the technical perspective alongside the business case is valuable.",
+      "category": "authority"
+    }
+  ],
+  "market_research": [
+    {
+      "topic": "Defense Budget Trends 2024",
+      "content": "The FY2024 defense budget request is $842 billion, with significant increases in cybersecurity, space, and AI/ML programs. Key growth areas include: cyber operations (+15% YoY), space systems (+12% YoY), and autonomous systems (+20% YoY). Small-to-mid defense contractors are seeing increased opportunities as DoD diversifies supply base.",
+      "source": "Congressional Budget Office",
+      "date": "2024-03-15"
+    },
+    {
+      "topic": "CMMC Compliance Deadline",
+      "content": "CMMC 2.0 implementation is accelerating with DoD requiring Level 2 certification for all CUI-handling contractors by 2025. Estimated 80,000+ companies in the DIB need to achieve compliance. This creates both urgency and opportunity for compliance solutions.",
+      "source": "DoD CMMC Program Office",
+      "date": "2024-02-01"
+    },
+    {
+      "topic": "Defense Tech Startup Landscape",
+      "content": "Defense tech VC funding reached $6.8B in 2023, up 40% from 2022. Key sectors: autonomous systems, cybersecurity, space tech, AI/ML for defense applications. Notable trend: traditional Silicon Valley VCs entering defense space, bringing commercial best practices.",
+      "source": "PitchBook Defense Tech Report",
+      "date": "2024-01-20"
+    },
+    {
+      "topic": "Government Contracting Pain Points",
+      "content": "Top challenges reported by defense contractors: 1) Compliance burden (68% cite as major challenge), 2) Talent acquisition/retention (62%), 3) Cash flow management around contract cycles (55%), 4) Cybersecurity requirements (52%), 5) Supply chain visibility (48%).",
+      "source": "NDIA Contractor Survey 2024",
+      "date": "2024-04-01"
+    }
+  ]
+}

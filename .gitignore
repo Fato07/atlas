@@ -1,0 +1,70 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# State files (contain PII)
+state/
+*-state.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.eggs/
+*.egg
+.venv/
+venv/
+ENV/
+.uv/
+
+# MCP servers
+mcp-servers/.venv/
+mcp-servers/dist/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker
+docker-compose.override.yml
+
+# Qdrant local data (use Docker volumes instead)
+qdrant_data/
+
+# n8n local data (use Docker volumes instead)
+n8n_data/
+
+# Secrets - never commit these!
+*.pem
+*.key
+credentials*.json
+secrets*.json

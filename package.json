@@ -1,0 +1,50 @@
+{
+  "name": "atlas-gtm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-first GTM Operations System - Same agents, different brains for rapid market validation",
+  "author": "CodesDevs",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter='*' dev",
+    "dev:agents": "bun run --filter='@atlas-gtm/agents' dev",
+    "build": "bun run --filter='*' build",
+    "test": "bun test",
+    "test:unit": "bun test unit",
+    "test:integration": "bun test integration",
+    "typecheck": "bun run --filter='*' typecheck",
+    "lint": "eslint packages --ext .ts,.tsx",
+    "lint:fix": "eslint packages --ext .ts,.tsx --fix",
+    "format": "prettier --write 'packages/**/*.ts'",
+    "format:check": "prettier --check 'packages/**/*.ts'",
+    "seed:brain": "bun run packages/lib/src/scripts/seed-brain.ts",
+    "debug:context": "bun run packages/agents/src/scripts/debug-context.ts",
+    "db:init": "bun run scripts/init-qdrant.ts",
+    "mcp:dev": "cd mcp-servers && uv run python -m atlas_gtm_mcp",
+    "mcp:test": "cd mcp-servers && uv run pytest",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "setup": "bun install && cd mcp-servers && uv sync"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@qdrant/js-client-rest": "^1.9.0",
+    "@upstash/redis": "^1.31.0",
+    "zod": "^3.23.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
