@@ -36,3 +36,9 @@ select = ["E", "F", "I", "N", "W"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

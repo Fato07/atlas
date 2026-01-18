@@ -40,9 +40,14 @@ def _get_qdrant_client() -> QdrantClient:
     """Get or create the Qdrant client."""
     global _qdrant_client
     if _qdrant_client is None:
+        host = os.getenv("QDRANT_HOST", "localhost")
+        port = os.getenv("QDRANT_PORT", "6333")
+        api_key = os.getenv("QDRANT_API_KEY")
+
+        # Use url parameter to explicitly specify HTTP (not HTTPS)
         _qdrant_client = QdrantClient(
-            host=os.getenv("QDRANT_HOST", "localhost"),
-            port=int(os.getenv("QDRANT_PORT", "6333")),
+            url=f"http://{host}:{port}",
+            api_key=api_key,
         )
     return _qdrant_client
 
@@ -131,15 +136,15 @@ def check_duplicate(
     content_vector = embed_query(content)
 
     # Search for similar insights
-    results = client.search(
+    results = client.query_points(
         collection_name="insights",
-        query_vector=content_vector,
+        query=content_vector,
         query_filter=Filter(
             must=[FieldCondition(key="brain_id", match=MatchValue(value=brain_id))]
         ),
         limit=1,
         score_threshold=DUPLICATE_SIMILARITY_THRESHOLD,
-    )
+    ).points
 
     if results:
         # Found a similar insight

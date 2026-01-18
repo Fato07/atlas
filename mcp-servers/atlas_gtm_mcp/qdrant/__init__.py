@@ -45,9 +45,14 @@ OBJECTION_CONFIDENCE_THRESHOLD = 0.70  # FR-012
 
 def _get_qdrant_client() -> QdrantClient:
     """Get Qdrant client instance."""
+    host = os.getenv("QDRANT_HOST", "localhost")
+    port = os.getenv("QDRANT_PORT", "6333")
+    api_key = os.getenv("QDRANT_API_KEY")
+
+    # Use url parameter to explicitly specify HTTP (not HTTPS)
     return QdrantClient(
-        host=os.getenv("QDRANT_HOST", "localhost"),
-        port=int(os.getenv("QDRANT_PORT", "6333")),
+        url=f"http://{host}:{port}",
+        api_key=api_key,
     )
 
 
@@ -128,12 +133,12 @@ def register_qdrant_tools(mcp: FastMCP) -> None:
             query_vector = embed_query(query)
             qdrant = _get_qdrant_client()
 
-            results = qdrant.search(
+            results = qdrant.query_points(
                 collection_name="icp_rules",
-                query_vector=query_vector,
+                query=query_vector,
                 query_filter=Filter(must=must_conditions),
                 limit=limit,
-            )
+            ).points
 
             # Map to result format
             output = [
@@ -298,15 +303,15 @@ def register_qdrant_tools(mcp: FastMCP) -> None:
             query_vector = embed_query(objection_text)
             qdrant = _get_qdrant_client()
 
-            results = qdrant.search(
+            results = qdrant.query_points(
                 collection_name="objection_handlers",
-                query_vector=query_vector,
+                query=query_vector,
                 query_filter=Filter(
                     must=[FieldCondition(key="brain_id", match=MatchValue(value=brain_id))]
                 ),
                 limit=1,
                 score_threshold=OBJECTION_CONFIDENCE_THRESHOLD,  # FR-012
-            )
+            ).points
 
             # Return None if no match meets threshold
             if not results:
@@ -404,12 +409,12 @@ def register_qdrant_tools(mcp: FastMCP) -> None:
             query_vector = embed_query(query)
             qdrant = _get_qdrant_client()
 
-            results = qdrant.search(
+            results = qdrant.query_points(
                 collection_name="market_research",
-                query_vector=query_vector,
+                query=query_vector,
                 query_filter=Filter(must=must_conditions),
                 limit=limit,
-            )
+            ).points
 
             # Map to result format
             output = [
