@@ -71,6 +71,7 @@ export const WebhookErrorResponseSchema = z.object({
     code: z.enum([
       'INVALID_INPUT',       // Request body validation failed
       'AUTH_FAILED',         // Missing or invalid X-Webhook-Secret
+      'SECURITY_BLOCKED',    // Blocked by Lakera Guard (prompt injection, etc.)
       'BRAIN_NOT_FOUND',     // No brain found for vertical
       'SCORING_FAILED',      // Internal scoring error
       'RATE_LIMITED',        // Too many requests
@@ -117,6 +118,7 @@ export const HTTP_STATUS = {
   OK: 200,
   BAD_REQUEST: 400,
   UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
   TOO_MANY_REQUESTS: 429,
   INTERNAL_ERROR: 500,
   TIMEOUT: 504,
@@ -133,6 +135,8 @@ export function errorCodeToHttpStatus(
       return HTTP_STATUS.BAD_REQUEST;
     case 'AUTH_FAILED':
       return HTTP_STATUS.UNAUTHORIZED;
+    case 'SECURITY_BLOCKED':
+      return HTTP_STATUS.FORBIDDEN;
     case 'RATE_LIMITED':
       return HTTP_STATUS.TOO_MANY_REQUESTS;
     case 'TIMEOUT':

@@ -1,0 +1,158 @@
+{
+  "collection_name": "objection_handlers",
+  "description": "Golden test cases for objection handlers evaluation",
+  "version": "1.0.0",
+  "created_at": "2025-01-19",
+  "test_cases": [
+    {
+      "id": "objection_001",
+      "question": "How should we handle 'We don't have budget right now'?",
+      "expected_contexts": [
+        "Budget objection handler: explore timeline, offer flexible options",
+        "No budget response: understand fiscal year, propose pilot"
+      ],
+      "ground_truth": "Acknowledge the budget constraint, explore when budget planning occurs, offer flexible payment options or a limited pilot to demonstrate value before full commitment.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "budget",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "id": "objection_002",
+      "question": "What's the best response to 'We're already working with a competitor'?",
+      "expected_contexts": [
+        "Competitor objection: respect relationship, highlight unique value",
+        "Existing vendor response: ask about gaps, offer comparison"
+      ],
+      "ground_truth": "Respect the existing relationship, ask about any gaps or challenges they've experienced, highlight unique differentiators, and offer a no-obligation comparison.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "competitor",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "id": "objection_003",
+      "question": "How do we respond to 'I need to check with my team/boss'?",
+      "expected_contexts": [
+        "Authority objection: offer to present to stakeholders",
+        "Committee decision handler: provide supporting materials"
+      ],
+      "ground_truth": "Offer to help by providing supporting materials, executive summaries, or presenting directly to the decision-making team to address their specific concerns.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "authority",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "id": "objection_004",
+      "question": "What's the approach for 'This isn't a priority right now'?",
+      "expected_contexts": [
+        "Timing objection: understand priorities, create urgency",
+        "Not a priority response: tie to current initiatives"
+      ],
+      "ground_truth": "Understand their current priorities, connect your solution to those priorities, share market timing risks, and propose a brief check-in for when priorities shift.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "timing",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "id": "objection_005",
+      "question": "How should we handle 'Your solution is too complex'?",
+      "expected_contexts": [
+        "Complexity objection: highlight onboarding support, simplify",
+        "Implementation concerns: describe phased approach"
+      ],
+      "ground_truth": "Acknowledge the concern, describe the phased implementation approach, highlight dedicated onboarding support, and share examples of similar-sized customers who succeeded.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "implementation",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "id": "objection_006",
+      "question": "What's the response to 'We can build this in-house'?",
+      "expected_contexts": [
+        "Build vs buy objection: total cost analysis, time to value",
+        "In-house development response: opportunity cost focus"
+      ],
+      "ground_truth": "Acknowledge their capability, present a total cost of ownership analysis including developer time, maintenance, and opportunity cost, emphasizing faster time to value.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "build_vs_buy",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "id": "objection_007",
+      "question": "How do we handle 'I had a bad experience with similar solutions'?",
+      "expected_contexts": [
+        "Past experience objection: understand specifics, differentiate",
+        "Bad experience handler: acknowledge, show how you're different"
+      ],
+      "ground_truth": "Empathize with their past experience, ask specific questions about what went wrong, clearly explain how your approach differs, and offer a low-risk trial.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "past_experience",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "id": "objection_008",
+      "question": "What's the approach for 'The ROI isn't clear'?",
+      "expected_contexts": [
+        "ROI objection: provide calculator, share case studies",
+        "Value unclear response: quantify benefits, benchmark"
+      ],
+      "ground_truth": "Provide an ROI calculator with their specific inputs, share relevant case studies with quantified results, and offer to do a custom value assessment.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "value",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "id": "objection_009",
+      "question": "How should we respond to 'We need more features'?",
+      "expected_contexts": [
+        "Feature gap objection: understand needs, share roadmap",
+        "Missing functionality: prioritize must-haves vs nice-to-haves"
+      ],
+      "ground_truth": "Understand which specific features are must-haves vs nice-to-haves, share the product roadmap, discuss workarounds, and gather feedback for product team.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "features",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "id": "objection_010",
+      "question": "What's the response to 'Send me more information'?",
+      "expected_contexts": [
+        "Information request: qualify interest, tailor materials",
+        "Send info response: understand specific interests"
+      ],
+      "ground_truth": "Ask what specific information would be most helpful, understand their evaluation criteria, send targeted materials, and propose a follow-up conversation to discuss.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "brush_off",
+        "difficulty": "easy"
+      }
+    }
+  ]
+}

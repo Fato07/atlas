@@ -14,6 +14,14 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { MessagingAngle } from './contracts/scoring-result';
 import type { RuleResult } from './contracts/scoring-result';
 import type { LeadInput } from './contracts/lead-input';
+import {
+  getLangfuse,
+  isLangfuseEnabled,
+} from '@atlas-gtm/lib/observability';
+import {
+  isLakeraGuardEnabled,
+  screenBeforeLLM,
+} from '@atlas-gtm/lib/security';
 
 // ===========================================
 // Types
@@ -124,59 +132,201 @@ Respond ONLY with valid JSON in this exact format:
 const ANGLE_MODEL = 'claude-3-5-haiku-latest';
 
 /**
+ * Options for Claude angle inference with observability
+ */
+export interface ClaudeAngleOptions {
+  apiKey?: string;
+  /** Parent trace ID for Langfuse observability */
+  traceId?: string;
+  /** Lead ID for metadata */
+  leadId?: string;
+}
+
+/**
+ * Result from Claude angle call including observability metadata
+ */
+export interface ClaudeAngleResult extends AngleRecommendation {
+  /** Langfuse observation ID for scoring */
+  observationId?: string;
+  /** Token usage from the API call */
+  tokensUsed?: {
+    input: number;
+    output: number;
+  };
+}
+
+/**
  * Call Claude to infer messaging angle
+ *
+ * Tracks the generation in Langfuse for observability when enabled.
  */
 export async function callClaudeForAngle(
   prompt: string,
   apiKey?: string
-): Promise<AngleRecommendation> {
+): Promise<AngleRecommendation>;
+export async function callClaudeForAngle(
+  prompt: string,
+  options: ClaudeAngleOptions
+): Promise<ClaudeAngleResult>;
+export async function callClaudeForAngle(
+  prompt: string,
+  apiKeyOrOptions?: string | ClaudeAngleOptions
+): Promise<AngleRecommendation | ClaudeAngleResult> {
+  // Parse options
+  const options: ClaudeAngleOptions = typeof apiKeyOrOptions === 'string'
+    ? { apiKey: apiKeyOrOptions }
+    : apiKeyOrOptions || {};
+
+  const { apiKey, traceId, leadId } = options;
+
   const anthropic = new Anthropic({
     apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
   });
 
-  const response = await anthropic.messages.create({
-    model: ANGLE_MODEL,
-    max_tokens: 512,
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
+  const langfuse = getLangfuse();
+  const langfuseEnabled = isLangfuseEnabled() && langfuse !== null && traceId;
+
+  // Create Langfuse generation for tracking
+  type LangfuseGeneration = ReturnType<NonNullable<typeof langfuse>['generation']>;
+  let generation: LangfuseGeneration | null = null;
+  if (langfuseEnabled && langfuse !== null) {
+    generation = langfuse.generation({
+      traceId,
+      name: 'angle_inference',
+      model: ANGLE_MODEL,
+      input: { prompt },
+      metadata: {
+        leadId,
+        promptLength: prompt.length,
       },
-    ],
-  });
-
-  // Extract text content from response
-  const textContent = response.content.find((block) => block.type === 'text');
-  if (!textContent || textContent.type !== 'text') {
-    throw new Error('No text response from Claude');
+    });
   }
 
-  // Parse JSON response
-  const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('No JSON found in Claude response');
+  const startTime = Date.now();
+  let errorOccurred: Error | null = null;
+
+  // Security screening before LLM call
+  let safePrompt = prompt;
+  if (isLakeraGuardEnabled()) {
+    const securityResult = await screenBeforeLLM(
+      prompt,
+      'angle_inference',
+      traceId
+    );
+
+    if (!securityResult.passed) {
+      // End Langfuse generation with security block
+      if (generation) {
+        generation.end({
+          output: null,
+          level: 'WARNING',
+          statusMessage: `Security blocked: ${securityResult.reason}`,
+          metadata: {
+            latencyMs: Date.now() - startTime,
+            securityBlocked: true,
+            reason: securityResult.reason,
+          },
+        });
+      }
+      throw new Error(`Security blocked: ${securityResult.reason}`);
+    }
+
+    // Use sanitized content if PII was masked
+    safePrompt = securityResult.sanitizedContent ?? prompt;
   }
 
-  const parsed = JSON.parse(jsonMatch[0]) as AngleRecommendation;
+  try {
+    const response = await anthropic.messages.create({
+      model: ANGLE_MODEL,
+      max_tokens: 512,
+      messages: [
+        {
+          role: 'user',
+          content: safePrompt,
+        },
+      ],
+    });
 
-  // Validate angle is one of the allowed values
-  const validAngles: MessagingAngle[] = [
-    'technical',
-    'roi',
-    'compliance',
-    'speed',
-    'integration',
-  ];
-  if (!validAngles.includes(parsed.angle)) {
-    throw new Error(`Invalid angle from Claude: ${parsed.angle}`);
+    const latencyMs = Date.now() - startTime;
+
+    // Extract text content from response
+    const textContent = response.content.find((block) => block.type === 'text');
+    if (!textContent || textContent.type !== 'text') {
+      throw new Error('No text response from Claude');
+    }
+
+    // Parse JSON response
+    const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No JSON found in Claude response');
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]) as AngleRecommendation;
+
+    // Validate angle is one of the allowed values
+    const validAngles: MessagingAngle[] = [
+      'technical',
+      'roi',
+      'compliance',
+      'speed',
+      'integration',
+    ];
+    if (!validAngles.includes(parsed.angle)) {
+      throw new Error(`Invalid angle from Claude: ${parsed.angle}`);
+    }
+
+    const result: ClaudeAngleResult = {
+      angle: parsed.angle,
+      confidence: Math.max(0, Math.min(1, parsed.confidence || 0.5)),
+      reasoning: parsed.reasoning || 'No reasoning provided',
+      personalization_hints: parsed.personalization_hints || [],
+    };
+
+    // Track token usage
+    if (response.usage) {
+      result.tokensUsed = {
+        input: response.usage.input_tokens,
+        output: response.usage.output_tokens,
+      };
+    }
+
+    // End Langfuse generation with success
+    if (generation) {
+      result.observationId = generation.id;
+      generation.end({
+        output: result,
+        usage: response.usage ? {
+          input: response.usage.input_tokens,
+          output: response.usage.output_tokens,
+          total: response.usage.input_tokens + response.usage.output_tokens,
+        } : undefined,
+        metadata: {
+          latencyMs,
+          angle: result.angle,
+          confidence: result.confidence,
+        },
+      });
+    }
+
+    return result;
+  } catch (error) {
+    errorOccurred = error instanceof Error ? error : new Error(String(error));
+
+    // End Langfuse generation with error
+    if (generation) {
+      generation.end({
+        output: null,
+        level: 'ERROR',
+        statusMessage: errorOccurred.message,
+        metadata: {
+          latencyMs: Date.now() - startTime,
+          error: errorOccurred.message,
+        },
+      });
+    }
+
+    throw errorOccurred;
   }
-
-  return {
-    angle: parsed.angle,
-    confidence: Math.max(0, Math.min(1, parsed.confidence || 0.5)),
-    reasoning: parsed.reasoning || 'No reasoning provided',
-    personalization_hints: parsed.personalization_hints || [],
-  };
 }
 
 // ===========================================
@@ -184,36 +334,82 @@ export async function callClaudeForAngle(
 // ===========================================
 
 /**
+ * Options for angle recommendation
+ */
+export interface RecommendAngleOptions {
+  apiKey?: string;
+  useHeuristicsOnly?: boolean;
+  minSignalsForLLM?: number;
+  /** Parent trace ID for Langfuse observability */
+  traceId?: string;
+}
+
+/**
+ * Result from angle recommendation including observability metadata
+ */
+export interface RecommendAngleResult extends AngleRecommendation {
+  /** Langfuse observation ID for scoring */
+  observationId?: string;
+  /** Token usage if LLM was called */
+  tokensUsed?: {
+    input: number;
+    output: number;
+  };
+  /** Whether heuristics were used instead of LLM */
+  usedHeuristics: boolean;
+}
+
+/**
  * Recommend messaging angle based on scoring signals
  *
  * Uses Claude claude-3-5-haiku for inference when signals are strong enough,
  * falls back to heuristics for simple cases.
+ *
+ * Tracks the operation in Langfuse when traceId is provided.
  */
 export async function recommendAngle(
   lead: LeadInput,
   results: RuleResult[],
-  options: {
-    apiKey?: string;
-    useHeuristicsOnly?: boolean;
-    minSignalsForLLM?: number;
-  } = {}
-): Promise<AngleRecommendation> {
-  const { apiKey, useHeuristicsOnly = false, minSignalsForLLM = 2 } = options;
+  options: RecommendAngleOptions = {}
+): Promise<RecommendAngleResult> {
+  const {
+    apiKey,
+    useHeuristicsOnly = false,
+    minSignalsForLLM = 2,
+    traceId,
+  } = options;
 
   const topSignals = extractTopSignals(results, 5);
 
   // If too few signals or heuristics-only mode, use rule-based approach
   if (useHeuristicsOnly || topSignals.length < minSignalsForLLM) {
-    return inferAngleFromHeuristics(lead, topSignals);
+    const heuristicResult = inferAngleFromHeuristics(lead, topSignals);
+    return {
+      ...heuristicResult,
+      usedHeuristics: true,
+    };
   }
 
   try {
     const prompt = buildAnglePrompt(lead, topSignals);
-    return await callClaudeForAngle(prompt, apiKey);
+    const claudeResult = await callClaudeForAngle(prompt, {
+      apiKey,
+      traceId,
+      leadId: lead.lead_id,
+    });
+
+    return {
+      ...claudeResult,
+      usedHeuristics: false,
+    };
   } catch (error) {
     // Fallback to heuristics on LLM error
     console.warn('Claude angle inference failed, using heuristics:', error);
-    return inferAngleFromHeuristics(lead, topSignals);
+    const heuristicResult = inferAngleFromHeuristics(lead, topSignals);
+    return {
+      ...heuristicResult,
+      usedHeuristics: true,
+    };
   }
 }
 

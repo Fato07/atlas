@@ -154,6 +154,11 @@ export const OPTIONAL_ENV_VARS = [
   'INSTANTLY_API_KEY',
   'TIMEZONE',
   'NODE_ENV',
+  // Langfuse Observability
+  'LANGFUSE_PUBLIC_KEY',
+  'LANGFUSE_SECRET_KEY',
+  'LANGFUSE_BASE_URL',
+  'LANGFUSE_ENABLED',
 ] as const;
 
 // ===========================================

@@ -25,6 +25,15 @@ This system implements a **two-layer architecture** where AI agents make decisio
        │            │              │              │              │
        ▼            ▼              ▼              ▼              ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
+│                        ★ SECURITY LAYER (Lakera Guard)                          │
+│  ┌─────────────────────────────┐  ┌─────────────────────────────┐               │
+│  │   Prompt Injection Defense  │  │      PII Detection          │               │
+│  │   (Block malicious inputs)  │  │   (Mask before LLM calls)   │               │
+│  └─────────────────────────────┘  └─────────────────────────────┘               │
+└─────────────────────────────────────┬───────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           MCP GATEWAY LAYER                                      │
 │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐        │
 │  │Airtable │ │ Attio   │ │Instantly│ │LinkedIn │ │ Slack   │ │ GCal    │        │
@@ -57,6 +66,15 @@ This system implements a **two-layer architecture** where AI agents make decisio
            └─────────────────────────┼─────────────────────────┘
                                      │
 ┌────────────────────────────────────▼────────────────────────────────────────────┐
+│                       ★ OBSERVABILITY LAYER (Langfuse)                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                 │
+│   │  Agent Traces   │  │  LLM Tracking   │  │ Quality Scores  │                 │
+│   │  (All calls)    │  │ (Tokens/Costs)  │  │  (Accuracy)     │                 │
+│   └─────────────────┘  └─────────────────┘  └─────────────────┘                 │
+└─────────────────────────────────────┬───────────────────────────────────────────┘
+                                      │
+┌─────────────────────────────────────▼───────────────────────────────────────────┐
 │                            INTELLIGENCE LAYER                                    │
 │                              (Claude API)                                        │
 ├─────────────────────────────────────────────────────────────────────────────────┤
@@ -83,6 +101,13 @@ This system implements a **two-layer architecture** where AI agents make decisio
 │                           KNOWLEDGE LAYER                                        │
 │                         (Qdrant Self-Hosted)                                     │
 ├─────────────────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────────────────────────────┐    │
+│  │                    ★ EVALUATION LAYER (Ragas)                           │    │
+│  │   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐        │    │
+│  │   │ Context Precision│  │ Context Recall │  │   Faithfulness  │        │    │
+│  │   │     >= 0.80     │  │    >= 0.75     │  │     >= 0.85     │        │    │
+│  │   └─────────────────┘  └─────────────────┘  └─────────────────┘        │    │
+│  └─────────────────────────────────────────────────────────────────────────┘    │
 │                                                                                  │
 │  ┌─────────────────────────────────────────────────────────────────────────┐    │
 │  │                         BRAIN MANAGER                                   │    │
@@ -728,6 +753,63 @@ icp_rules = query_with_brain(
 - [ ] Dashboard showing metrics
 - [ ] Ready to test second vertical
 
+### Observability Metrics (Langfuse)
+- [ ] 100% agent traces captured
+- [ ] Token usage tracked per agent
+- [ ] Quality scores for all outputs
+- [ ] Cost tracking per vertical
+
+### Evaluation Metrics (Ragas)
+- [ ] Context Precision >= 0.80
+- [ ] Context Recall >= 0.75
+- [ ] CI/CD quality gates passing
+- [ ] Golden datasets for all collections
+
+### Security Metrics (Lakera Guard)
+- [ ] 100% prompt injection detection
+- [ ] 100% PII masking before LLM
+- [ ] Security audit trail complete
+- [ ] <50ms security screening latency
+
+---
+
+## Operational Layers
+
+The system includes three critical operational layers for production reliability:
+
+### Security Layer (Lakera Guard)
+
+| Capability | Purpose | Behavior |
+|------------|---------|----------|
+| Prompt Injection Defense | Detect manipulation attempts | Block malicious inputs |
+| PII Detection | Identify sensitive data | Mask before LLM calls |
+| Content Moderation | Flag inappropriate content | Warn and log |
+| Malicious Links | Detect suspicious URLs | Block and alert |
+
+**Integration Point**: All inputs are screened before reaching the Intelligence Layer.
+
+### Observability Layer (Langfuse)
+
+| Capability | Purpose | Metrics |
+|------------|---------|---------|
+| Agent Traces | Track all operations | Latency, success rate |
+| LLM Tracking | Monitor Claude API usage | Tokens, costs, latency |
+| Quality Scores | Evaluate output quality | Accuracy, tier correctness |
+| Session Tracking | Group related operations | Brain context, vertical |
+
+**Integration Point**: Wraps all agent operations and LLM calls.
+
+### Evaluation Layer (Ragas)
+
+| Metric | Purpose | Threshold |
+|--------|---------|-----------|
+| Context Precision | Are retrieved results relevant? | >= 0.80 |
+| Context Recall | Are all relevant docs retrieved? | >= 0.75 |
+| Context Relevance | How relevant is context to question? | >= 0.80 |
+| Faithfulness | Is response faithful to retrieved context? | >= 0.85 |
+
+**Integration Point**: Evaluates Qdrant retrieval quality via CI/CD pipeline.
+
 ---
 
 ## Key Decisions Made
@@ -741,5 +823,8 @@ icp_rules = query_with_brain(
 | Graph DB | Not now (graph-ready) | Start simple, add Neo4j if needed in Phase 2 |
 | Managed MCPs | Composio | Pre-built Airtable/Slack, auth handled |
 | Custom MCPs | Python (FastMCP) | Attio, Instantly, Qdrant, LinkedIn |
+| **Observability** | **Langfuse** | LLM-native tracing, quality scoring, free tier sufficient |
+| **RAG Evaluation** | **Ragas** | Industry standard metrics, Langfuse integration |
+| **Security** | **Lakera Guard** | Prompt injection + PII detection, low latency |
 
 ---

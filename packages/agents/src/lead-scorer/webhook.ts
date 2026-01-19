@@ -4,6 +4,9 @@
  * Handles incoming webhook requests for lead scoring.
  * Validates authentication, parses requests, and routes to agent.
  *
+ * Observability: Initializes Langfuse on startup when environment
+ * variables are configured.
+ *
  * @module lead-scorer/webhook
  */
 
@@ -29,6 +32,16 @@ import {
 import { LeadScorerAgent } from './agent';
 import { logger } from './logger';
 import { needsEnrichment } from './contracts/lead-input';
+import {
+  initLangfuse,
+  shutdownLangfuse,
+  isLangfuseEnabled,
+} from '@atlas-gtm/lib/observability';
+import {
+  initLakeraGuard,
+  isLakeraGuardEnabled,
+  screenWebhookInput,
+} from '@atlas-gtm/lib/security';
 
 // ===========================================
 // Types
@@ -85,10 +98,13 @@ export interface LeadExistenceCheck {
  * Webhook Handler Class
  *
  * Processes incoming webhook requests for lead scoring.
+ * Initializes Langfuse for observability when environment variables are set.
  */
 export class WebhookHandler {
   private config: Required<WebhookHandlerConfig>;
   private agent: LeadScorerAgent;
+  private langfuseInitialized: boolean = false;
+  private securityInitialized: boolean = false;
 
   constructor(config: WebhookHandlerConfig) {
     this.config = {
@@ -103,6 +119,69 @@ export class WebhookHandler {
       anthropicApiKey: this.config.anthropicApiKey,
       useHeuristicsForAngle: this.config.useHeuristicsForAngle,
     });
+
+    // Initialize Langfuse for observability (auto-enabled from env vars)
+    this.initializeObservability();
+
+    // Initialize Lakera Guard for security (auto-enabled from env vars)
+    this.initializeSecurity();
+  }
+
+  /**
+   * Initialize Langfuse observability
+   * Reads configuration from environment variables:
+   * - LANGFUSE_PUBLIC_KEY
+   * - LANGFUSE_SECRET_KEY
+   * - LANGFUSE_BASE_URL (optional)
+   * - LANGFUSE_ENABLED (optional, defaults to true if keys present)
+   */
+  private initializeObservability(): void {
+    try {
+      const langfuse = initLangfuse();
+      this.langfuseInitialized = langfuse !== null;
+
+      if (this.langfuseInitialized) {
+        logger.info('Langfuse observability initialized', {
+          enabled: isLangfuseEnabled(),
+        });
+      }
+    } catch (error) {
+      logger.warn('Failed to initialize Langfuse observability', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Initialize Lakera Guard security
+   * Reads configuration from environment variables:
+   * - LAKERA_GUARD_API_KEY
+   * - LAKERA_GUARD_ENABLED (optional, defaults to true if key present)
+   */
+  private initializeSecurity(): void {
+    try {
+      initLakeraGuard();
+      this.securityInitialized = isLakeraGuardEnabled();
+
+      if (this.securityInitialized) {
+        logger.info('Lakera Guard security initialized');
+      }
+    } catch (error) {
+      logger.warn('Failed to initialize Lakera Guard security', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Shutdown Langfuse gracefully (flush pending traces)
+   * Call this when shutting down the server.
+   */
+  async shutdown(): Promise<void> {
+    if (this.langfuseInitialized) {
+      await shutdownLangfuse();
+      logger.info('Langfuse observability shutdown complete');
+    }
   }
 
   /**
@@ -155,9 +234,38 @@ export class WebhookHandler {
         };
       }
 
-      const webhookRequest = validationResult.data!;
+      let webhookRequest = validationResult.data!;
 
-      // 3. Check if lead needs enrichment
+      // 3. Screen for security threats and PII
+      if (isLakeraGuardEnabled()) {
+        const securityResult = await screenWebhookInput(
+          webhookRequest,
+          'lead_scorer_webhook',
+          crypto.randomUUID()
+        );
+
+        if (!securityResult.passed) {
+          logger.warn('Security screening blocked request', {
+            reason: securityResult.reason,
+            lead_id: webhookRequest.lead_id,
+          });
+
+          return {
+            status: HTTP_STATUS.FORBIDDEN,
+            body: buildErrorResponse(
+              'SECURITY_BLOCKED',
+              securityResult.reason || 'Request blocked by security'
+            ),
+          };
+        }
+
+        // Use sanitized data if PII was masked
+        if (securityResult.sanitizedData) {
+          webhookRequest = securityResult.sanitizedData as typeof webhookRequest;
+        }
+      }
+
+      // 4. Check if lead needs enrichment
       if (needsEnrichment(webhookRequest)) {
         logger.webhookReceived({
           auth_valid: true,
@@ -171,7 +279,7 @@ export class WebhookHandler {
         };
       }
 
-      // 4. Check for duplicate scoring (per FR-014)
+      // 5. Check for duplicate scoring (per FR-014)
       const existenceCheck = await this.checkLeadExistence(webhookRequest);
 
       if (existenceCheck.exists && !webhookRequest.force_rescore && !existenceCheck.dataChanged) {
@@ -191,7 +299,7 @@ export class WebhookHandler {
         };
       }
 
-      // 5. Score the lead with timeout
+      // 6. Score the lead with timeout
       const result = await this.scoreWithTimeout(webhookRequest);
 
       const processingTime = Date.now() - startTime;

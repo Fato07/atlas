@@ -8,14 +8,16 @@
   "exports": {
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
-    "./embeddings": "./src/embeddings.ts"
+    "./embeddings": "./src/embeddings.ts",
+    "./observability": "./src/observability/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
-    "@qdrant/js-client-rest": "^1.12.0"
+    "@qdrant/js-client-rest": "^1.12.0",
+    "langfuse": "^3.29.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

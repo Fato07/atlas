@@ -7,10 +7,21 @@
  *
  * Context Budget: 80,000 tokens
  *
+ * Observability: Integrates with Langfuse for tracing when enabled.
+ *
  * @module lead-scorer/agent
  */
 
-import type { BrainId, Brain, ICPRule } from '@atlas-gtm/lib';
+import type { BrainId, Brain, ICPRule, LeadId, ScoringTier, MessagingAngle } from '@atlas-gtm/lib';
+import {
+  initLangfuse,
+  getLangfuse,
+  isLangfuseEnabled,
+  flushLangfuse,
+  createLeadScoringTrace,
+  endLeadScoringTrace,
+  recordLeadScoringResults,
+} from '@atlas-gtm/lib/observability';
 import type { LeadInput } from './contracts/lead-input';
 import type { ScoringResult, TierThresholds } from './contracts/scoring-result';
 import type {
@@ -30,6 +41,7 @@ import { evaluateAllRules, resolveRuleConflicts } from './rules';
 import { calculateScore, assignTier, loadThresholds } from './scoring';
 import { logger, LeadScorerLogger } from './logger';
 import { recommendAngle, extractTopSignals } from './angles';
+import type { RecommendAngleResult } from './angles';
 import {
   createState,
   generateSessionId,
@@ -232,9 +244,16 @@ export class LeadScorerAgent {
    *
    * @param lead - Lead input data
    * @returns Scoring result with score, tier, angle, and breakdown
+   *
+   * Observability: Creates a Langfuse trace for the entire scoring operation
+   * when Langfuse is enabled via environment variables.
    */
   async scoreLead(lead: LeadInput): Promise<ScoringResult> {
     const startTime = Date.now();
+
+    // Create Langfuse trace for observability
+    let traceContext: ReturnType<typeof createLeadScoringTrace> = null;
+    let traceId: string | undefined;
 
     try {
       // 1. Detect vertical
@@ -253,6 +272,22 @@ export class LeadScorerAgent {
       const brain = await this.loadBrainForVertical(vertical);
       if (!brain) {
         throw new Error(`No brain found for vertical: ${vertical}`);
+      }
+
+      // Initialize Langfuse trace after we have brain context
+      if (isLangfuseEnabled()) {
+        traceContext = createLeadScoringTrace({
+          leadId: lead.lead_id as LeadId,
+          brainId: brain.id,
+          leadData: {
+            company: lead.company,
+            title: lead.title,
+            industry: lead.industry,
+            employeeCount: lead.company_size,
+            source: lead.source,
+          },
+        });
+        traceId = traceContext?.traceId;
       }
 
       // 3. Query ICP rules
@@ -274,10 +309,12 @@ export class LeadScorerAgent {
       // 8. Recommend messaging angle (FR-008, FR-009)
       // Use heuristics by default to avoid Claude API calls in fast path
       // Set useHeuristicsOnly: false in config to enable LLM inference
-      const angleRecommendation = await recommendAngle(lead, resolvedResults, {
+      // Pass traceId for Langfuse observability
+      const angleRecommendation: RecommendAngleResult = await recommendAngle(lead, resolvedResults, {
         apiKey: this.config.anthropicApiKey,
         useHeuristicsOnly: this.config.useHeuristicsForAngle ?? true,
         minSignalsForLLM: 2,
+        traceId,
       });
       const recommendedAngle = angleRecommendation.angle;
       const personalizationHints = angleRecommendation.personalization_hints;
@@ -300,6 +337,45 @@ export class LeadScorerAgent {
         timestamp: new Date().toISOString(),
       };
 
+      // End Langfuse trace with success
+      if (traceId) {
+        // Calculate max possible score from rules
+        const maxPossibleScore = rules.reduce((sum, r) => sum + r.max_score, 0);
+
+        endLeadScoringTrace(traceId, {
+          tier: tier as ScoringTier,
+          totalScore: score,
+          maxPossibleScore,
+          rulesEvaluated: rules.length,
+          knockoutTriggered: knockedOut,
+          detectedVertical: vertical,
+          angles: [recommendedAngle] as MessagingAngle[],
+          processingTimeMs: processingTime,
+        });
+
+        // Record custom scores for quality tracking
+        await recordLeadScoringResults(traceId, {
+          leadId: lead.lead_id as LeadId,
+          brainId: brain.id,
+          tier: tier as ScoringTier,
+          totalScore: score,
+          maxScore: maxPossibleScore,
+          rulesMatched: resolvedResults.filter((r) => r.score > 0).length,
+          totalRules: rules.length,
+          knockoutTriggered: knockedOut,
+          detectedVertical: vertical,
+          verticalConfidence: verticalResult.confidence,
+          angles: [recommendedAngle] as MessagingAngle[],
+          angleQuality: angleRecommendation.confidence,
+          angleObservationId: angleRecommendation.observationId,
+        });
+
+        // Flush traces asynchronously (don't block response)
+        flushLangfuse().catch((err) => {
+          console.warn('[Langfuse] Failed to flush traces:', err);
+        });
+      }
+
       // Log success
       this.logger.leadScored({
         lead_id: lead.lead_id,
@@ -315,6 +391,19 @@ export class LeadScorerAgent {
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+
+      // End Langfuse trace with error if it was created
+      if (traceId) {
+        const langfuse = getLangfuse();
+        if (langfuse) {
+          const trace = langfuse.trace({ id: traceId });
+          trace.update({
+            output: { error: message },
+            metadata: { failed: true, errorMessage: message },
+          });
+          flushLangfuse().catch(() => {});
+        }
+      }
 
       this.logger.scoringFailed({
         lead_id: lead.lead_id,

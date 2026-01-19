@@ -1,0 +1,158 @@
+{
+  "collection_name": "icp_rules",
+  "description": "Golden test cases for ICP (Ideal Customer Profile) rules evaluation",
+  "version": "1.0.0",
+  "created_at": "2025-01-19",
+  "test_cases": [
+    {
+      "id": "icp_001",
+      "question": "What are the company size requirements for Series B+ funded companies?",
+      "expected_contexts": [
+        "Company size rule: Target companies with 50-500 employees",
+        "Funding stage rule: Series B+ funding indicates growth stage readiness"
+      ],
+      "ground_truth": "Target companies should have 50-500 employees and Series B or later funding stage.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "firmographic",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "id": "icp_002",
+      "question": "Which industries should be excluded from targeting?",
+      "expected_contexts": [
+        "Excluded industries: gambling, tobacco, weapons",
+        "Industry knockout rule for regulatory compliance"
+      ],
+      "ground_truth": "Gambling, tobacco, and weapons industries should be excluded from targeting.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "firmographic",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "id": "icp_003",
+      "question": "What title seniority levels indicate decision makers?",
+      "expected_contexts": [
+        "Title rule: VP+ level titles indicate decision makers",
+        "C-suite and VP titles have higher scoring weight"
+      ],
+      "ground_truth": "VP-level and above titles (VP, SVP, C-suite) indicate decision-making authority.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "firmographic",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "id": "icp_004",
+      "question": "What tech stack signals indicate a good fit for IR software?",
+      "expected_contexts": [
+        "Tech stack signals: CRM systems, investor databases, reporting tools",
+        "Integration readiness with existing IR workflows"
+      ],
+      "ground_truth": "Good fit signals include existing CRM systems, investor databases, and reporting tools that indicate IR workflow maturity.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "technographic",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "id": "icp_005",
+      "question": "What hiring signals indicate IR investment readiness?",
+      "expected_contexts": [
+        "Hiring for IR roles indicates investment in investor relations",
+        "Finance and communications hires signal IR infrastructure building"
+      ],
+      "ground_truth": "Hiring for IR-specific roles or finance/communications positions indicates readiness to invest in IR infrastructure.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "behavioral",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "id": "icp_006",
+      "question": "What are the revenue thresholds for qualified leads?",
+      "expected_contexts": [
+        "Revenue threshold: $10M-$500M ARR for mid-market targeting",
+        "Revenue indicates ability to invest in IR solutions"
+      ],
+      "ground_truth": "Qualified leads typically have $10M-$500M ARR, indicating mid-market size with budget for IR solutions.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "firmographic",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "id": "icp_007",
+      "question": "What recent news events indicate IR needs?",
+      "expected_contexts": [
+        "Recent funding announcements increase IR needs",
+        "IPO preparation signals strong IR software demand"
+      ],
+      "ground_truth": "Recent funding rounds, IPO preparation, or M&A activity strongly indicate increased IR needs.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "behavioral",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "id": "icp_008",
+      "question": "What geographic regions are prioritized for outreach?",
+      "expected_contexts": [
+        "Geographic focus: US and UK markets primary",
+        "English-speaking markets with strong public company presence"
+      ],
+      "ground_truth": "US and UK markets are prioritized due to strong public company presence and English-speaking regulatory environments.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "firmographic",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "id": "icp_009",
+      "question": "What compliance requirements indicate IR maturity?",
+      "expected_contexts": [
+        "SEC compliance for public companies",
+        "Regulatory reporting requirements signal IR infrastructure needs"
+      ],
+      "ground_truth": "SEC compliance requirements, quarterly reporting obligations, and Reg FD compliance indicate established IR needs.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "firmographic",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "id": "icp_010",
+      "question": "What engagement signals indicate purchase intent?",
+      "expected_contexts": [
+        "Website visits to pricing page indicate purchase consideration",
+        "Demo requests and content downloads signal buying intent"
+      ],
+      "ground_truth": "Pricing page visits, demo requests, whitepaper downloads, and webinar attendance indicate active purchase consideration.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "intent",
+        "difficulty": "medium"
+      }
+    }
+  ]
+}

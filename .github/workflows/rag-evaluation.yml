@@ -1,0 +1,83 @@
+name: RAG Evaluation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mcp-servers/atlas_gtm_mcp/qdrant/**'
+      - 'mcp-servers/atlas_gtm_mcp/evaluation/**'
+      - 'data/seeds/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mcp-servers/atlas_gtm_mcp/qdrant/**'
+      - 'mcp-servers/atlas_gtm_mcp/evaluation/**'
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 6am UTC
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          cd mcp-servers
+          uv sync
+
+      - name: Seed test data
+        env:
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+        run: |
+          cd mcp-servers
+          uv run python -c "print('Seeding would happen here')"
+          # TODO: Add actual seeding when data exists
+          # uv run python -m atlas_gtm_mcp.qdrant.seed --test-data
+
+      - name: Run RAG evaluation
+        env:
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          QDRANT_URL: http://localhost:6333
+        run: |
+          cd mcp-servers
+          uv run python -m atlas_gtm_mcp.evaluation.cli evaluate \
+            --output ./reports \
+            --langfuse \
+            --fail-on-error
+
+      - name: Upload evaluation report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rag-evaluation-report
+          path: mcp-servers/reports/
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ RAG Evaluation failed. Check the workflow artifacts for details.'
+            });

@@ -1,0 +1,158 @@
+{
+  "collection_name": "response_templates",
+  "description": "Golden test cases for response templates evaluation",
+  "version": "1.0.0",
+  "created_at": "2025-01-19",
+  "test_cases": [
+    {
+      "id": "template_001",
+      "question": "What template should be used for initial cold outreach to a CFO?",
+      "expected_contexts": [
+        "Cold outreach template for C-suite: concise, value-focused opening",
+        "Executive template: reference recent company news or achievement"
+      ],
+      "ground_truth": "Use the executive cold outreach template with concise, value-focused messaging and a reference to recent company achievements.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "cold_outreach",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "id": "template_002",
+      "question": "How should we respond to a pricing objection email?",
+      "expected_contexts": [
+        "Pricing objection response: acknowledge concern, reframe value",
+        "ROI-focused response template with cost comparison"
+      ],
+      "ground_truth": "Respond with the pricing objection template that acknowledges the concern, reframes the value proposition, and includes ROI-focused cost comparison.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "objection_handling",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "id": "template_003",
+      "question": "What follow-up template works best after a demo?",
+      "expected_contexts": [
+        "Post-demo follow-up: recap key points discussed",
+        "Demo follow-up template with next steps and timeline"
+      ],
+      "ground_truth": "Use the post-demo follow-up template that recaps key discussion points, addresses any outstanding questions, and proposes clear next steps with timeline.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "follow_up",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "id": "template_004",
+      "question": "What template should be used when a prospect goes silent?",
+      "expected_contexts": [
+        "Re-engagement template for silent prospects",
+        "Breakup email template with value reminder"
+      ],
+      "ground_truth": "Use the re-engagement template series: first a value-add touchpoint, then a gentle check-in, finally a respectful breakup email that leaves the door open.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "re_engagement",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "id": "template_005",
+      "question": "How should we acknowledge a referral introduction?",
+      "expected_contexts": [
+        "Referral acknowledgment template: thank referrer, establish credibility",
+        "Warm intro template with mutual connection reference"
+      ],
+      "ground_truth": "Use the referral acknowledgment template that thanks the referrer, establishes credibility through the mutual connection, and provides clear value proposition.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "referral",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "id": "template_006",
+      "question": "What template works for event-based outreach after a webinar?",
+      "expected_contexts": [
+        "Event follow-up template with content recap",
+        "Webinar attendee outreach: reference specific topics discussed"
+      ],
+      "ground_truth": "Use the event follow-up template that references specific webinar topics discussed, offers additional resources, and proposes a relevant next step.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "event_follow_up",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "id": "template_007",
+      "question": "How should we respond to a request for case studies?",
+      "expected_contexts": [
+        "Case study response template with relevant examples",
+        "Social proof template with industry-specific results"
+      ],
+      "ground_truth": "Use the case study response template that provides 2-3 relevant industry examples with specific metrics and outcomes, plus an offer to connect with reference customers.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "social_proof",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "id": "template_008",
+      "question": "What template should be used for contract renewal discussions?",
+      "expected_contexts": [
+        "Renewal outreach template with success metrics",
+        "Contract renewal template highlighting achieved outcomes"
+      ],
+      "ground_truth": "Use the renewal discussion template that highlights achieved outcomes during the contract period, presents success metrics, and introduces new features or expanded value.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "renewal",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "id": "template_009",
+      "question": "How should we handle a competitor comparison request?",
+      "expected_contexts": [
+        "Competitive response template with differentiation focus",
+        "Comparison request handler with unique value points"
+      ],
+      "ground_truth": "Use the competitive response template that acknowledges the evaluation process, focuses on unique differentiators, and offers a comparative analysis meeting.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "competitive",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "id": "template_010",
+      "question": "What template works for introducing new stakeholders mid-deal?",
+      "expected_contexts": [
+        "Stakeholder introduction template with context summary",
+        "Multi-threaded outreach template for deal expansion"
+      ],
+      "ground_truth": "Use the stakeholder introduction template that provides context from prior conversations, establishes relevance to their role, and proposes a brief alignment call.",
+      "vertical": "iro",
+      "brain_id": "brain_iro_v1",
+      "metadata": {
+        "category": "stakeholder_management",
+        "difficulty": "medium"
+      }
+    }
+  ]
+}

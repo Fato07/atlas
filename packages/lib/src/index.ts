@@ -13,3 +13,9 @@ export {
   embedQuery,
   embeddingService,
 } from './embeddings';
+
+// Observability (Langfuse integration)
+export * from './observability';
+
+// Security (Lakera Guard integration)
+export * from './security';
