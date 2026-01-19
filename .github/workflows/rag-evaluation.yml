@@ -40,7 +40,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd mcp-servers
-          uv sync
+          uv sync --extra evaluation
 
       - name: Seed test data
         env:
