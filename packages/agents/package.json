@@ -7,16 +7,22 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./lead-scorer": "./src/lead-scorer/index.ts"
+    "./lead-scorer": "./src/lead-scorer/index.ts",
+    "./reply-handler": "./src/reply-handler/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "dev": "bun run --watch src/index.ts"
+    "test:e2e": "bun test --testNamePattern='E2E'",
+    "dev": "bun run --watch src/index.ts",
+    "reply-handler": "bun run src/reply-handler/server.ts",
+    "reply-handler:dev": "bun --watch run src/reply-handler/server.ts",
+    "reply-handler:mock": "bun run src/__tests__/reply-handler/fixtures/mock-server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.20.0",
     "@atlas-gtm/lib": "workspace:*",
+    "@slack/web-api": "7.13.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
