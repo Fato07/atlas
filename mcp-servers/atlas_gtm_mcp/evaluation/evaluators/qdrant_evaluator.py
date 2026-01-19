@@ -19,7 +19,8 @@ try:
         AnswerRelevancy,
     )
     from ragas.llms import llm_factory
-    from ragas.embeddings.base import embedding_factory
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    from langchain_openai.embeddings import OpenAIEmbeddings as LangchainOpenAIEmbeddings
     from openai import OpenAI as OpenAIClient
     from datasets import Dataset
 
@@ -190,12 +191,12 @@ class QdrantRAGEvaluator:
             client = OpenAIClient(api_key=self.config.openai_api_key)
             evaluator_llm = llm_factory(self.config.evaluator_model, client=client)
 
-            # Initialize embeddings for AnswerRelevancy metric using factory
-            evaluator_embeddings = embedding_factory(
-                "openai",
+            # Initialize embeddings for AnswerRelevancy metric using LangChain wrapper
+            langchain_embeddings = LangchainOpenAIEmbeddings(
                 model="text-embedding-3-small",
-                client=client,
+                api_key=self.config.openai_api_key,
             )
+            evaluator_embeddings = LangchainEmbeddingsWrapper(langchain_embeddings)
 
             # Instantiate metrics with LLM (AnswerRelevancy also requires embeddings)
             ragas_metrics = [
