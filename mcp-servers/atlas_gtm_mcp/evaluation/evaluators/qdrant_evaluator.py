@@ -11,7 +11,7 @@ import asyncio
 
 try:
     from ragas import evaluate
-    from ragas.metrics.collections import (
+    from ragas.metrics import (
         ContextPrecision,
         ContextRecall,
         Faithfulness,
