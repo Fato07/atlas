@@ -18,6 +18,7 @@ try:
         AnswerRelevancy,
     )
     from ragas.llms import llm_factory
+    from ragas.embeddings import OpenAIEmbeddings
     from openai import OpenAI as OpenAIClient
     from datasets import Dataset
 
@@ -188,12 +189,18 @@ class QdrantRAGEvaluator:
             client = OpenAIClient(api_key=self.config.openai_api_key)
             evaluator_llm = llm_factory(self.config.evaluator_model, client=client)
 
-            # Instantiate metrics with LLM
+            # Initialize embeddings for AnswerRelevancy metric
+            evaluator_embeddings = OpenAIEmbeddings(
+                model="text-embedding-3-small",
+                client=client,
+            )
+
+            # Instantiate metrics with LLM (AnswerRelevancy also requires embeddings)
             ragas_metrics = [
                 ContextPrecision(llm=evaluator_llm),
                 ContextRecall(llm=evaluator_llm),
                 Faithfulness(llm=evaluator_llm),
-                AnswerRelevancy(llm=evaluator_llm),
+                AnswerRelevancy(llm=evaluator_llm, embeddings=evaluator_embeddings),
             ]
 
             # Run Ragas evaluation
