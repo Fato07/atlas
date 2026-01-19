@@ -154,9 +154,9 @@ def create_points_from_golden_dataset(dataset: dict, collection_name: str) -> li
         for i, context in enumerate(expected_contexts[1:], start=1):
             extra_point_id = str(uuid.uuid4())
 
-            # Create a slightly varied embedding by appending index to question
-            # This keeps it related but distinguishable
-            varied_embedding = get_mock_embedding(f"{question}_{i}")
+            # IMPORTANT: Use same embedding key as primary context
+            # Evaluator queries with `question`, so all contexts must match
+            varied_embedding = get_mock_embedding(question)
 
             extra_payload = {
                 "text": context,
