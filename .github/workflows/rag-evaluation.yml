@@ -19,6 +19,9 @@ on:
 jobs:
   evaluate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
 
     services:
       qdrant:

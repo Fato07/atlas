@@ -6,6 +6,7 @@ Command-line interface for running RAG quality evaluations.
 
 import argparse
 import asyncio
+import logging
 import sys
 from pathlib import Path
 from typing import Optional
@@ -17,20 +18,17 @@ from .evaluators.collection_evaluator import CollectionEvaluator, evaluate_colle
 from .reporters.json_reporter import JSONReporter
 from .reporters.langfuse_reporter import LangfuseReporter, LANGFUSE_AVAILABLE
 
-# Configure structured logging
+# Configure structured logging (simple, no stdlib dependency)
 structlog.configure(
     processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
         structlog.dev.ConsoleRenderer(),
     ],
-    wrapper_class=structlog.stdlib.BoundLogger,
+    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
     context_class=dict,
     logger_factory=structlog.PrintLoggerFactory(),
     cache_logger_on_first_use=True,
