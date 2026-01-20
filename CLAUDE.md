@@ -273,6 +273,8 @@ bun run seed:brain --vertical=fintech --source=./data/fintech-kb.json
 - Structured logging: lead_scored, scoring_failed, rule_evaluated events (004-lead-scorer)
 - TypeScript 5.4+ (Bun runtime) for agent, Python 3.11+ for MCP extensions + @anthropic-ai/sdk, @qdrant/js-client-rest, @slack/web-api, structlog, Zod (006-reply-handler-agent)
 - Qdrant (KB vectors), Airtable (lead status), Attio (CRM), state/reply-handler-state.json (session state) (006-reply-handler-agent)
+- Python 3.11+ + FastMCP ≥0.4.0, httpx, tenacity, structlog, pydantic ≥2.7.0 (007-attio-mcp-server)
+- N/A (External: Attio CRM API v2) (007-attio-mcp-server)
 - TypeScript 5.4+ (Bun runtime) + @anthropic-ai/sdk, @slack/web-api, Zod (validation), structlog (JSON logging) (008-meeting-prep-agent)
 - Meeting Prep Agent: 100k token budget, modular architecture with sub-agents (Instantly, Airtable, Attio, KB Researcher) (008-meeting-prep-agent)
 - Webhook API: POST /webhook/meeting-prep/brief, /analyze, GET /brief/:id/status, /health with X-Webhook-Secret auth (008-meeting-prep-agent)
