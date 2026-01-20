@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./lead-scorer": "./src/lead-scorer/index.ts",
-    "./reply-handler": "./src/reply-handler/index.ts"
+    "./reply-handler": "./src/reply-handler/index.ts",
+    "./meeting-prep": "./src/meeting-prep/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -17,13 +18,17 @@
     "dev": "bun run --watch src/index.ts",
     "reply-handler": "bun run src/reply-handler/server.ts",
     "reply-handler:dev": "bun --watch run src/reply-handler/server.ts",
-    "reply-handler:mock": "bun run src/__tests__/reply-handler/fixtures/mock-server.ts"
+    "reply-handler:mock": "bun run src/__tests__/reply-handler/fixtures/mock-server.ts",
+    "meeting-prep": "bun run src/meeting-prep/server.ts",
+    "meeting-prep:dev": "bun --watch run src/meeting-prep/server.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.20.0",
+    "@anthropic-ai/sdk": "^0.30.0",
     "@atlas-gtm/lib": "workspace:*",
     "@slack/web-api": "7.13.0",
-    "zod": "^3.23.0"
+    "@upstash/redis": "^1.34.0",
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.23.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

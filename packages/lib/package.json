@@ -9,15 +9,19 @@
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./embeddings": "./src/embeddings.ts",
-    "./observability": "./src/observability/index.ts"
+    "./observability": "./src/observability/index.ts",
+    "./structured-outputs": "./src/structured-outputs/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
     "@qdrant/js-client-rest": "^1.12.0",
-    "langfuse": "^3.29.0"
+    "langfuse": "^3.29.0",
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.23.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

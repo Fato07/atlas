@@ -19,3 +19,6 @@ export * from './observability';
 
 // Security (Lakera Guard integration)
 export * from './security';
+
+// Structured Outputs (Zod to JSON Schema for Claude tools)
+export * from './structured-outputs';

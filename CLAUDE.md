@@ -151,9 +151,18 @@ packages/
 │   └── src/
 │       ├── base-agent.ts   # Base class with context tracking
 │       ├── sub-agent.ts    # Sub-agent spawning
-│       ├── lead-scorer.ts  # Lead scoring agent
-│       ├── reply-handler.ts # Reply handling agent
-│       └── meeting-prep.ts # Meeting prep agent
+│       ├── lead-scorer/    # Lead scoring agent
+│       ├── reply-handler/  # Reply handling agent
+│       └── meeting-prep/   # Meeting prep agent (modular architecture)
+│           ├── contracts/  # Zod schemas: meeting-input, brief, analysis, webhook-api
+│           ├── sub-agents/ # Fetchers: Instantly, Airtable, Attio, KB Researcher
+│           ├── agent.ts    # Main orchestrator
+│           ├── calendar-handler.ts    # Calendar webhook processing
+│           ├── context-gatherer.ts    # Parallel data gathering
+│           ├── brief-generator.ts     # Claude-powered brief generation
+│           ├── transcript-analyzer.ts # Post-meeting analysis
+│           ├── slack-delivery.ts      # Block Kit formatting
+│           └── webhook.ts             # HTTP endpoints
 mcp-servers/               # Python MCP servers
 └── atlas_gtm_mcp/
     ├── qdrant/            # KB tools
@@ -177,10 +186,10 @@ See `docs/architecture/data-flow.md` for comprehensive system data flow diagrams
 |-----------|--------|--------|
 | Lead Scorer Agent | ✅ | `004-lead-scorer` |
 | Reply Handler Agent | ✅ | `006-reply-handler-agent` |
+| Meeting Prep Agent | ✅ | `008-meeting-prep-agent` |
 | Qdrant MCP Server | ✅ | `002-qdrant-mcp` |
 | Brain Lifecycle | ✅ | `003-brain-lifecycle` |
-| Attio MCP Server | 🚧 | `007-attio-mcp-server` |
-| Meeting Prep Agent | 📋 | - |
+| Attio MCP Server | ✅ | `007-attio-mcp-server` |
 | Instantly MCP Server | 📋 | - |
 | LinkedIn MCP Server | 📋 | - |
 
@@ -253,7 +262,16 @@ bun run seed:brain --vertical=fintech --source=./data/fintech-kb.json
 - Structured logging: lead_scored, scoring_failed, rule_evaluated events (004-lead-scorer)
 - TypeScript 5.4+ (Bun runtime) for agent, Python 3.11+ for MCP extensions + @anthropic-ai/sdk, @qdrant/js-client-rest, @slack/web-api, structlog, Zod (006-reply-handler-agent)
 - Qdrant (KB vectors), Airtable (lead status), Attio (CRM), state/reply-handler-state.json (session state) (006-reply-handler-agent)
+- TypeScript 5.4+ (Bun runtime) + @anthropic-ai/sdk, @slack/web-api, Zod (validation), structlog (JSON logging) (008-meeting-prep-agent)
+- Meeting Prep Agent: 100k token budget, modular architecture with sub-agents (Instantly, Airtable, Attio, KB Researcher) (008-meeting-prep-agent)
+- Webhook API: POST /webhook/meeting-prep/brief, /analyze, GET /brief/:id/status, /health with X-Webhook-Secret auth (008-meeting-prep-agent)
+- Structured logging: brief_requested, context_gathered, brief_generated, brief_delivered, brief_failed, analysis_* events (008-meeting-prep-agent)
+- Error handling with retry (1s/2s/4s exponential backoff), Slack Block Kit error notifications (008-meeting-prep-agent)
+- Research cache with Upstash Redis for company context (24h TTL) (008-meeting-prep-agent)
 
 ## Recent Changes
-- 001-gtm-infra: Added TypeScript 5.4+ (Bun runtime), Python 3.11+ (MCP servers) + @qdrant/js-client-rest, voyageai (Python), Docker Compose v2
+- 008-meeting-prep-agent: Pre-call brief generation (30 min before meetings) and post-call transcript analysis with BANT scoring. Modular architecture with sub-agents for Instantly/Airtable/Attio/KB. Slack Block Kit delivery. Manual request via `/brief` command. Error handling with retry.
+- 007-attio-mcp-server: Production-quality Attio CRM integration with error handling and API patterns
+- 006-reply-handler-agent: Reply handling agent for email conversations
 - 004-lead-scorer: First production agent - scores leads against ICP rules, detects verticals, calculates tiers, recommends messaging angles, integrates with n8n/Slack
+- 001-gtm-infra: Added TypeScript 5.4+ (Bun runtime), Python 3.11+ (MCP servers) + @qdrant/js-client-rest, voyageai (Python), Docker Compose v2
