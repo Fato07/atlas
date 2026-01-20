@@ -98,7 +98,7 @@ Before implementing any agent, read `specs/context-engineering.md`. Key principl
 1. **KV-Cache Optimization** - 10x cost difference between cached/uncached tokens
 2. **Append-Only Context** - Never modify earlier context
 3. **Sub-Agent Isolation** - Spawn sub-agents for data gathering, return distilled results only
-4. **Context Budgets** - Lead Scorer: 80k, Reply Handler: 60k, Meeting Prep: 100k tokens
+4. **Context Budgets** - Lead Scorer: 80k, Reply Handler: 60k, Meeting Prep: 100k, Learning Loop: 40k tokens
 5. **Session Handoff** - Maintain state files for long-running tasks
 
 See research sources:
@@ -116,6 +116,7 @@ Context budgets:
 - Lead Scorer: 80,000 tokens
 - Reply Handler: 60,000 tokens
 - Meeting Prep: 100,000 tokens
+- Learning Loop: 40,000 tokens
 
 ### 3. State Files
 
@@ -153,15 +154,24 @@ packages/
 │       ├── sub-agent.ts    # Sub-agent spawning
 │       ├── lead-scorer/    # Lead scoring agent
 │       ├── reply-handler/  # Reply handling agent
-│       └── meeting-prep/   # Meeting prep agent (modular architecture)
-│           ├── contracts/  # Zod schemas: meeting-input, brief, analysis, webhook-api
-│           ├── sub-agents/ # Fetchers: Instantly, Airtable, Attio, KB Researcher
-│           ├── agent.ts    # Main orchestrator
-│           ├── calendar-handler.ts    # Calendar webhook processing
-│           ├── context-gatherer.ts    # Parallel data gathering
-│           ├── brief-generator.ts     # Claude-powered brief generation
-│           ├── transcript-analyzer.ts # Post-meeting analysis
-│           ├── slack-delivery.ts      # Block Kit formatting
+│       ├── meeting-prep/   # Meeting prep agent (modular architecture)
+│       │   ├── contracts/  # Zod schemas: meeting-input, brief, analysis, webhook-api
+│       │   ├── sub-agents/ # Fetchers: Instantly, Airtable, Attio, KB Researcher
+│       │   ├── agent.ts    # Main orchestrator
+│       │   ├── calendar-handler.ts    # Calendar webhook processing
+│       │   ├── context-gatherer.ts    # Parallel data gathering
+│       │   ├── brief-generator.ts     # Claude-powered brief generation
+│       │   ├── transcript-analyzer.ts # Post-meeting analysis
+│       │   ├── slack-delivery.ts      # Block Kit formatting
+│       │   └── webhook.ts             # HTTP endpoints
+│       └── learning-loop/  # Learning loop agent (insight extraction & KB learning)
+│           ├── contracts/  # Zod schemas: insight, quality-gate, validation, synthesis
+│           ├── insight-extractor.ts   # Extract insights from text
+│           ├── quality-gates.ts       # Confidence, duplicate, importance checks
+│           ├── validation-queue.ts    # Slack-based human validation
+│           ├── kb-writer.ts           # Write to Qdrant with provenance
+│           ├── weekly-synthesizer.ts  # Generate weekly reports
+│           ├── template-tracker.ts    # A/B performance tracking
 │           └── webhook.ts             # HTTP endpoints
 mcp-servers/               # Python MCP servers
 └── atlas_gtm_mcp/
@@ -187,6 +197,7 @@ See `docs/architecture/data-flow.md` for comprehensive system data flow diagrams
 | Lead Scorer Agent | ✅ | `004-lead-scorer` |
 | Reply Handler Agent | ✅ | `006-reply-handler-agent` |
 | Meeting Prep Agent | ✅ | `008-meeting-prep-agent` |
+| Learning Loop Agent | ✅ | `010-learning-loop` |
 | Qdrant MCP Server | ✅ | `002-qdrant-mcp` |
 | Brain Lifecycle | ✅ | `003-brain-lifecycle` |
 | Attio MCP Server | ✅ | `007-attio-mcp-server` |
@@ -268,8 +279,11 @@ bun run seed:brain --vertical=fintech --source=./data/fintech-kb.json
 - Structured logging: brief_requested, context_gathered, brief_generated, brief_delivered, brief_failed, analysis_* events (008-meeting-prep-agent)
 - Error handling with retry (1s/2s/4s exponential backoff), Slack Block Kit error notifications (008-meeting-prep-agent)
 - Research cache with Upstash Redis for company context (24h TTL) (008-meeting-prep-agent)
+- TypeScript 5.4+ (Bun runtime) for agents, Python 3.11+ for MCP extensions + @anthropic-ai/sdk, @qdrant/js-client-rest, @slack/web-api, Zod, structlog (010-learning-loop)
+- Qdrant (insights collection - existing schema), Upstash Redis (validation queue state) (010-learning-loop)
 
 ## Recent Changes
+- 010-learning-loop: Automated insight extraction from email replies and call transcripts. Quality gates (confidence, duplicate, importance). Slack-based validation queue for human review. KB write with provenance tracking. Weekly synthesis reports. Template A/B performance tracking.
 - 008-meeting-prep-agent: Pre-call brief generation (30 min before meetings) and post-call transcript analysis with BANT scoring. Modular architecture with sub-agents for Instantly/Airtable/Attio/KB. Slack Block Kit delivery. Manual request via `/brief` command. Error handling with retry.
 - 007-attio-mcp-server: Production-quality Attio CRM integration with error handling and API patterns
 - 006-reply-handler-agent: Reply handling agent for email conversations

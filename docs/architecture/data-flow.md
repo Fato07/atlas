@@ -1,8 +1,8 @@
 # Atlas GTM Data Flow Architecture
 
 > **Last Updated**: 2026-01-20
-> **Version**: 1.1
-> **Status**: Active - Meeting Prep Agent complete
+> **Version**: 1.2
+> **Status**: Active - Learning Loop Agent complete
 
 ---
 
@@ -15,10 +15,11 @@
 5. [Lead Scorer Flow](#lead-scorer-flow)
 6. [Reply Handler Flow](#reply-handler-flow)
 7. [Meeting Prep Agent Flow](#meeting-prep-agent-flow)
-8. [Brain Lifecycle Flow](#brain-lifecycle-flow)
-9. [Component Architecture](#component-architecture)
-10. [Glossary](#glossary)
-11. [Change Log](#change-log)
+8. [Learning Loop Agent Flow](#learning-loop-agent-flow)
+9. [Brain Lifecycle Flow](#brain-lifecycle-flow)
+10. [Component Architecture](#component-architecture)
+11. [Glossary](#glossary)
+12. [Change Log](#change-log)
 
 ---
 
@@ -33,6 +34,7 @@
 | Lead Scorer Agent | ✅ | `004-lead-scorer` | Scoring, tiers, angles, Slack notifications |
 | Reply Handler Agent | ✅ | `006-reply-handler-agent` | Classification, KB matching, tier routing |
 | Meeting Prep Agent | ✅ | `008-meeting-prep-agent` | Pre-call briefs, post-call analysis, Slack delivery |
+| Learning Loop Agent | ✅ | `010-learning-loop` | Insight extraction, quality gates, Slack validation, KB learning |
 
 ### MCP Servers
 
@@ -76,9 +78,12 @@ flowchart TB
         WH_LS[/"Webhook: /score-lead"/]
         WH_RH[/"Webhook: /handle-reply"/]
         WH_MP[/"Webhook: /meeting-prep<br/>(brief, analyze)"/]
+        WH_LL[/"Webhook: /learning-loop<br/>(extract, validate)"/]
         CAL_WH[/"Calendar Webhook<br/>(30 min before)"/]
         SLACK_CMD[/"Slack /brief Command"/]
+        SLACK_VAL[/"Slack Validation<br/>Callback"/]
         N8N_SCHED[("n8n Scheduled<br/>Batch Trigger")]
+        N8N_LL[("n8n Learning Loop<br/>Daily Trigger")]
         INSTANTLY[/"Instantly Email<br/>Reply Webhook"/]
     end
 
@@ -86,6 +91,7 @@ flowchart TB
         LS["Lead Scorer Agent<br/>Context: 80k tokens<br/>:3001"]
         RH["Reply Handler Agent<br/>Context: 60k tokens<br/>:3002"]
         MP["Meeting Prep Agent<br/>Context: 100k tokens<br/>:3003"]
+        LL["Learning Loop Agent<br/>Context: 40k tokens<br/>:3004"]
     end
 
     subgraph Brain["Brain System (Qdrant)"]
@@ -123,11 +129,15 @@ flowchart TB
     WH_MP --> MP
     CAL_WH --> MP
     SLACK_CMD --> MP
+    WH_LL --> LL
+    SLACK_VAL --> LL
+    N8N_LL --> LL
 
     %% Agent to Brain
     LS --> BRAIN_SEL
     RH --> BRAIN_SEL
     MP --> BRAIN_SEL
+    LL --> BRAIN_SEL
     BRAIN_SEL --> KB
 
     %% KB queries via MCP REST
@@ -140,6 +150,7 @@ flowchart TB
     LS --> MCP_REST
     RH --> MCP_REST
     MP --> MCP_REST
+    LL --> MCP_REST
 
     %% MCP to External
     ATTIO_MCP --> ATTIO
@@ -154,11 +165,15 @@ flowchart TB
     MP --> SLACK
     MP --> REDIS
     MP --> CLAUDE
+    LL --> SLACK
+    LL --> REDIS
+    LL --> CLAUDE
 
     %% State persistence
     LS --> STATE_FILE
     RH --> STATE_FILE
     MP --> STATE_FILE
+    LL --> STATE_FILE
 
     %% Styling
     classDef entry fill:#e1f5fe,stroke:#01579b
@@ -169,8 +184,8 @@ flowchart TB
     classDef state fill:#fffde7,stroke:#f57f17
     classDef rest fill:#bbdefb,stroke:#1976d2
 
-    class WH_LS,WH_RH,WH_MP,CAL_WH,SLACK_CMD,N8N_SCHED,INSTANTLY entry
-    class LS,RH,MP agent
+    class WH_LS,WH_RH,WH_MP,WH_LL,CAL_WH,SLACK_CMD,SLACK_VAL,N8N_SCHED,N8N_LL,INSTANTLY entry
+    class LS,RH,MP,LL agent
     class BRAIN_SEL,KB brain
     class QDRANT_MCP,ATTIO_MCP,INSTANTLY_MCP mcp
     class MCP_REST rest
@@ -187,27 +202,34 @@ flowchart TB
 | Instantly → Reply Handler → KB → Auto/Approval/Escalate | Reply processing | 100-500 replies/day |
 | Calendar → Meeting Prep → Brief → Slack | Pre-call brief generation | 5-20/day |
 | Transcript → Meeting Prep → Analysis → CRM | Post-call analysis with BANT | 5-20/day |
+| n8n/Webhook → Learning Loop → Extract → Quality Gates → KB | Insight extraction and learning | 50-200/day |
+| Learning Loop → Slack → Human Validation → KB Write | Human-validated insights | 5-20/day |
+| n8n Weekly → Learning Loop → Synthesis → Slack | Weekly synthesis reports | 1/week |
 
 ---
 
 ## Agent Communication Overview
 
-This section shows the unified architecture across all three agents, demonstrating how they share infrastructure while maintaining distinct responsibilities.
+This section shows the unified architecture across all four agents, demonstrating how they share infrastructure while maintaining distinct responsibilities.
 
 ```mermaid
 flowchart TB
     subgraph Triggers["Entry Points"]
         CAL[/"Calendar Webhook<br/>(30 min before)"/]
         N8N[("n8n Scheduled")]
+        N8N_LL[("n8n Learning Loop<br/>Daily/Weekly")]
         INST_WH[/"Instantly Reply<br/>Webhook"/]
         MANUAL[/"Manual /brief<br/>Slack Command"/]
         WH_SCORE[/"Score Lead<br/>Webhook"/]
+        WH_LL[/"Learning Loop<br/>Webhook"/]
+        SLACK_VAL[/"Slack Validation<br/>Callback"/]
     end
 
     subgraph Agents["AI Agents (TypeScript/Bun)"]
         LS["Lead Scorer<br/>80k tokens<br/>:3001"]
         RH["Reply Handler<br/>60k tokens<br/>:3002"]
         MP["Meeting Prep<br/>100k tokens<br/>:3003"]
+        LL["Learning Loop<br/>40k tokens<br/>:3004"]
     end
 
     subgraph MCPLayer["MCP REST API (:8100)"]
@@ -239,11 +261,15 @@ flowchart TB
     INST_WH --> RH
     CAL --> MP
     MANUAL --> MP
+    WH_LL --> LL
+    N8N_LL --> LL
+    SLACK_VAL --> LL
 
     %% Agent to MCP REST
     LS --> REST
     RH --> REST
     MP --> REST
+    LL --> REST
 
     %% MCP REST to Tools
     REST --> QDRANT_T
@@ -263,6 +289,9 @@ flowchart TB
     MP --> SLACK
     MP --> REDIS
     MP --> CLAUDE
+    LL --> SLACK
+    LL --> REDIS
+    LL --> CLAUDE
 
     %% Styling
     classDef trigger fill:#e1f5fe,stroke:#01579b
@@ -272,8 +301,8 @@ flowchart TB
     classDef data fill:#f3e5f5,stroke:#7b1fa2
     classDef external fill:#fce4ec,stroke:#880e4f
 
-    class CAL,N8N,INST_WH,MANUAL,WH_SCORE trigger
-    class LS,RH,MP agent
+    class CAL,N8N,N8N_LL,INST_WH,MANUAL,WH_SCORE,WH_LL,SLACK_VAL trigger
+    class LS,RH,MP,LL agent
     class REST mcp
     class QDRANT_T,ATTIO_T,INST_T tool
     class QDRANT,REDIS data
@@ -287,6 +316,7 @@ flowchart TB
 | **Lead Scorer** | Score leads against ICP rules | 80k tokens | Score, tier, messaging angle |
 | **Reply Handler** | Classify & respond to emails | 60k tokens | Auto-reply, approval request, escalation |
 | **Meeting Prep** | Pre-call briefs & post-call analysis | 100k tokens | Slack brief, BANT score, CRM updates |
+| **Learning Loop** | Insight extraction & KB learning | 40k tokens | Validated insights, weekly synthesis, template metrics |
 
 ### Shared Infrastructure
 
@@ -723,6 +753,248 @@ flowchart TD
 
 ---
 
+## Learning Loop Agent Flow
+
+The Learning Loop Agent is an automated insight extraction and KB learning system that extracts insights from email replies and call transcripts, validates them through quality gates, and writes them to the knowledge base with provenance tracking.
+
+### Insight Extraction Pipeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SOURCE as Source<br/>(Reply/Transcript)
+    participant WH as Webhook Handler
+    participant LL as Learning Loop Agent
+    participant EXTRACT as InsightExtractor
+    participant QG as QualityGates
+    participant CLAUDE as Claude API
+    participant QDRANT as Qdrant MCP
+    participant KB as Knowledge Base
+    participant SLACK as Slack
+    participant STATE as State File
+
+    %% Entry
+    SOURCE->>WH: POST /webhook/learning-loop/extract
+    WH->>WH: Validate X-Webhook-Secret
+    WH->>LL: Process extraction request
+
+    %% Load state
+    LL->>STATE: Load existing state<br/>(resume support)
+
+    %% Extract insights
+    LL->>EXTRACT: Extract from text
+    EXTRACT->>CLAUDE: Analyze text for insights
+    Note over CLAUDE: Categories: objection,<br/>pain_point, competitor,<br/>buying_signal, feature_request
+    CLAUDE-->>EXTRACT: Structured insights[]
+    EXTRACT-->>LL: ExtractedInsight[]
+
+    %% Quality Gates
+    loop For each insight
+        LL->>QG: Validate insight
+
+        %% Confidence check
+        QG->>QG: Check confidence ≥ 0.7
+        alt Confidence < 0.7
+            QG-->>LL: REJECT (low_confidence)
+        end
+
+        %% Duplicate check
+        QG->>QDRANT: Semantic search for duplicates
+        Note over QDRANT,KB: brain_id filter applied
+        QDRANT->>KB: Search insights<br/>similarity > 0.95
+        KB-->>QDRANT: Existing matches
+        QDRANT-->>QG: Duplicate check result
+        alt Duplicate found
+            QG-->>LL: REJECT (duplicate)
+        end
+
+        %% Importance scoring
+        QG->>QG: Calculate importance score
+        QG-->>LL: Gate result (pass/flag/reject)
+    end
+
+    %% Route based on gates
+    alt High confidence (≥ 0.85) + High importance
+        LL->>QDRANT: write_insight(brain_id, insight)
+        Note over QDRANT,KB: Auto-approve path
+        QDRANT->>KB: Insert with provenance
+    else Low confidence OR High importance
+        LL->>SLACK: Send validation request
+        Note over SLACK: Human review required
+    else Rejected
+        LL->>STATE: Log rejection reason
+    end
+
+    %% Checkpoint
+    LL->>STATE: Save checkpoint
+    LL-->>WH: Extraction result
+```
+
+### Quality Gates Flow
+
+```mermaid
+flowchart TD
+    INSIGHT[/"Extracted Insight"/] --> CONF{"Confidence<br/>≥ 0.7?"}
+
+    CONF -->|No| REJECT_LOW["REJECT<br/>low_confidence"]
+    CONF -->|Yes| DUP{"Semantic<br/>Duplicate?"}
+
+    DUP -->|Yes| REJECT_DUP["REJECT<br/>duplicate"]
+    DUP -->|No| IMP["Calculate<br/>Importance Score"]
+
+    IMP --> ROUTE{"Route Decision"}
+
+    ROUTE -->|"conf ≥ 0.85 AND<br/>importance ≥ 0.7"| AUTO["AUTO-APPROVE<br/>→ KB Write"]
+    ROUTE -->|"conf < 0.85 OR<br/>importance ≥ 0.8"| VALIDATE["VALIDATION QUEUE<br/>→ Slack Review"]
+    ROUTE -->|"importance < 0.5"| SKIP["SKIP<br/>Not significant"]
+
+    AUTO --> WRITE["Write to KB<br/>with provenance"]
+    VALIDATE --> QUEUE["Add to<br/>Validation Queue"]
+
+    %% Styling
+    classDef reject fill:#ffcdd2,stroke:#b71c1c
+    classDef approve fill:#c8e6c9,stroke:#2e7d32
+    classDef validate fill:#fff9c4,stroke:#f57f17
+    classDef skip fill:#e0e0e0,stroke:#616161
+
+    class REJECT_LOW,REJECT_DUP reject
+    class AUTO,WRITE approve
+    class VALIDATE,QUEUE validate
+    class SKIP skip
+```
+
+### Validation Workflow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant LL as Learning Loop Agent
+    participant REDIS as Redis Queue
+    participant SLACK as Slack
+    participant USER as GTM Operator
+    participant QDRANT as Qdrant MCP
+    participant KB as Knowledge Base
+
+    %% Queue insight for validation
+    LL->>REDIS: Add to validation queue
+    Note over REDIS: TTL: 7 days
+
+    LL->>SLACK: Post validation request
+    Note over SLACK: Block Kit with<br/>Approve/Reject/Edit buttons
+
+    %% User action
+    alt Approved
+        USER->>SLACK: Click Approve
+        SLACK->>LL: Callback: approved
+        LL->>QDRANT: write_insight(brain_id, insight)
+        QDRANT->>KB: Insert with human_validated=true
+        LL->>REDIS: Remove from queue
+    else Rejected
+        USER->>SLACK: Click Reject
+        SLACK->>LL: Callback: rejected
+        LL->>REDIS: Mark as rejected
+        LL->>LL: Log rejection for learning
+    else Edited
+        USER->>SLACK: Click Edit
+        SLACK->>USER: Open edit modal
+        USER->>SLACK: Submit edited insight
+        SLACK->>LL: Callback: edited_content
+        LL->>QDRANT: write_insight(brain_id, edited)
+        QDRANT->>KB: Insert with human_validated=true
+    else Timeout (48h)
+        REDIS->>LL: Queue timeout event
+        LL->>SLACK: Reminder message
+        Note over SLACK: Second chance (24h)
+        alt Still no response
+            LL->>LL: Auto-reject or escalate
+        end
+    end
+```
+
+### Weekly Synthesis Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant N8N as n8n Weekly Trigger
+    participant LL as Learning Loop Agent
+    participant QDRANT as Qdrant MCP
+    participant KB as Knowledge Base
+    participant CLAUDE as Claude API
+    participant SLACK as Slack
+
+    %% Trigger
+    N8N->>LL: POST /webhook/learning-loop/synthesize
+
+    %% Gather data
+    LL->>QDRANT: get_insights_since(brain_id, 7_days)
+    QDRANT->>KB: Query recent insights
+    KB-->>QDRANT: Insight[]
+    QDRANT-->>LL: Week's insights
+
+    LL->>QDRANT: get_template_metrics(brain_id)
+    QDRANT->>KB: Query template performance
+    KB-->>QDRANT: TemplateMetric[]
+    QDRANT-->>LL: Template stats
+
+    %% Generate synthesis
+    LL->>CLAUDE: Generate weekly report
+    Note over CLAUDE: Trends, patterns,<br/>recommendations
+    CLAUDE-->>LL: WeeklySynthesis
+
+    %% Deliver
+    LL->>SLACK: Post synthesis report
+    Note over SLACK: Block Kit formatted<br/>with sections
+
+    LL-->>N8N: Synthesis complete
+```
+
+### Key Components
+
+| Component | Responsibility | FRs |
+|-----------|---------------|-----|
+| **InsightExtractor** | Extract structured insights from text using Claude | FR-001 to FR-005 |
+| **QualityGates** | Validate confidence, check duplicates, score importance | FR-006 to FR-010 |
+| **ValidationQueue** | Slack-based human validation workflow with timeouts | FR-011 to FR-017 |
+| **KBWriter** | Write validated insights to Qdrant with provenance | FR-018 to FR-021 |
+| **WeeklySynthesizer** | Generate weekly trend reports and recommendations | FR-022 to FR-026 |
+| **TemplateTracker** | Track response template A/B performance metrics | FR-027 to FR-032 |
+
+### Insight Categories
+
+| Category | Description | Auto-Approve Threshold |
+|----------|-------------|------------------------|
+| `objection` | New objection patterns from prospects | conf ≥ 0.85, importance ≥ 0.7 |
+| `pain_point` | Pain points mentioned by prospects | conf ≥ 0.85, importance ≥ 0.7 |
+| `competitor` | Competitor mentions and comparisons | conf ≥ 0.85, importance ≥ 0.6 |
+| `buying_signal` | Positive buying intent signals | conf ≥ 0.90, importance ≥ 0.7 |
+| `feature_request` | Feature requests from conversations | conf ≥ 0.85, importance ≥ 0.8 |
+| `market_intel` | Market trends and industry insights | conf ≥ 0.80, importance ≥ 0.6 |
+
+### State Management
+
+The Learning Loop Agent maintains state in `state/learning-loop-state.json`:
+
+```typescript
+interface LearningLoopState {
+  lastProcessedId: string;
+  validationQueue: ValidationQueueItem[];
+  weeklyMetrics: {
+    insightsExtracted: number;
+    insightsApproved: number;
+    insightsRejected: number;
+    templatesTracked: number;
+  };
+  checkpoints: {
+    lastExtraction: string;
+    lastValidation: string;
+    lastSynthesis: string;
+  };
+}
+```
+
+---
+
 ## Brain Lifecycle Flow
 
 ### Sequence Diagram
@@ -928,6 +1200,7 @@ flowchart TB
             LEAD_SCORER["Lead Scorer<br/>80k context<br/>:3001"]
             REPLY_HANDLER["Reply Handler<br/>60k context<br/>:3002"]
             MEETING_PREP["Meeting Prep<br/>100k context<br/>:3003"]
+            LEARNING_LOOP["Learning Loop<br/>40k context<br/>:3004"]
         end
 
         subgraph Lib["Shared Libraries"]
@@ -942,6 +1215,7 @@ flowchart TB
         LS_STATE[/"lead-scorer-state.json"/]
         RH_STATE[/"reply-handler-state.json"/]
         MP_STATE[/"meeting-prep-state.json"/]
+        LL_STATE[/"learning-loop-state.json"/]
     end
 
     %% Connections
@@ -955,6 +1229,8 @@ flowchart TB
     QDRANT_MCP --> VOYAGE
     MEETING_PREP --> REDIS
     MEETING_PREP --> CLAUDE
+    LEARNING_LOOP --> REDIS
+    LEARNING_LOOP --> CLAUDE
 
     classDef external fill:#fce4ec,stroke:#880e4f
     classDef infra fill:#e8f5e9,stroke:#2e7d32
@@ -965,8 +1241,8 @@ flowchart TB
     class AIRTABLE,ATTIO,SLACK,INSTANTLY,VOYAGE,CLAUDE external
     class QDRANT,POSTGRES,REDIS,QDRANT_MCP,ATTIO_MCP,INSTANTLY_MCP,N8N infra
     class MCP_REST rest
-    class LEAD_SCORER,REPLY_HANDLER,MEETING_PREP,TYPES,QDRANT_CLIENT,STATE,EMBEDDINGS app
-    class LS_STATE,RH_STATE,MP_STATE state
+    class LEAD_SCORER,REPLY_HANDLER,MEETING_PREP,LEARNING_LOOP,TYPES,QDRANT_CLIENT,STATE,EMBEDDINGS app
+    class LS_STATE,RH_STATE,MP_STATE,LL_STATE state
 ```
 
 ### MCP Server Topology
@@ -979,6 +1255,7 @@ flowchart LR
         LS["Lead Scorer<br/>:3001"]
         RH["Reply Handler<br/>:3002"]
         MP["Meeting Prep<br/>:3003"]
+        LL["Learning Loop<br/>:3004"]
     end
 
     subgraph REST["MCP REST API Layer"]
@@ -1032,16 +1309,21 @@ flowchart LR
 | **Brief** | Pre-call preparation document generated by Meeting Prep Agent, delivered via Slack Block Kit. |
 | **Context Gatherer** | Component that orchestrates parallel sub-agent calls to collect meeting context from multiple sources. |
 | **ICP Rule** | Ideal Customer Profile scoring criterion defining an attribute, condition, and score weight. |
-| **Insight** | Learning extracted from conversations, stored in KB with quality gates. |
+| **Insight** | Learning extracted from conversations, stored in KB with provenance tracking. Learning Loop Agent extracts and validates insights before KB write. |
 | **Knockout Rule** | An ICP rule that, if failed, immediately disqualifies a lead (score = 0). |
+| **Learning Loop** | Automated system for extracting insights from conversations, validating through quality gates, and writing to KB. Includes weekly synthesis reports. |
 | **MCP** | Model Context Protocol - standard for AI agents to interact with external tools. |
 | **MCP REST API** | HTTP wrapper (:8100) that enables TypeScript agents to call Python MCP tools via REST endpoints. |
 | **Brain-Scoped Query** | A query to Qdrant that includes `brain_id` filter to ensure vertical-specific results. |
+| **Quality Gate** | Validation checkpoint in Learning Loop: confidence threshold (≥0.7), duplicate detection (semantic similarity >0.95), importance scoring. |
 | **State File** | JSON file (`state/*.json`) storing session checkpoints for resumable operations. |
 | **Sub-Agent** | Pattern where main agent spawns isolated agent for data gathering (returns distilled results). |
+| **Template Tracking** | A/B performance metrics for response templates. Learning Loop tracks reply rates, conversion, and sentiment by template. |
 | **Tier** | Routing classification: Tier 1 (auto-action), Tier 2 (approval needed), Tier 3 (human only). |
 | **Transcript Analyzer** | Component that extracts BANT signals and generates recommendations from meeting transcripts. |
+| **Validation Queue** | Slack-based workflow for human validation of low-confidence or high-importance insights. 48h timeout with reminder. |
 | **Vertical** | A market segment (e.g., "iro" = Investor Relations Operations, "defense" = Defense Contractors). |
+| **Weekly Synthesis** | Learning Loop report summarizing week's insights, trends, and template performance. Delivered via Slack. |
 
 ---
 
@@ -1049,6 +1331,7 @@ flowchart LR
 
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
+| 2026-01-20 | 1.2 | Added Learning Loop Agent flow (insight extraction, quality gates, validation workflow, weekly synthesis), updated overview diagrams, glossary terms | Atlas GTM Team |
 | 2026-01-20 | 1.1 | Added Meeting Prep Agent flow, Agent Communication Overview, updated status tables, MCP REST API layer | Atlas GTM Team |
 | 2026-01-20 | 1.0 | Initial data flow documentation with status markers | Atlas GTM Team |
 
