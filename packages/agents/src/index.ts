@@ -206,3 +206,198 @@ export {
   setLogger as setMeetingPrepLogger,
   type LoggerConfig as MeetingPrepLoggerConfig,
 } from './meeting-prep';
+
+// ===========================================
+// Learning Loop Agent
+// ===========================================
+
+// Learning Loop Agent - use subpath import for namespacing
+// import { LearningLoopAgent } from '@atlas-gtm/agents/learning-loop';
+// NOTE: To avoid naming conflicts with other agents, consumers should use
+// subpath imports rather than the main entry point.
+
+// Export learning-loop contracts
+export {
+  // Insight contracts
+  InsightCategorySchema,
+  InsightImportanceSchema,
+  InsightSourceTypeSchema,
+  InsightSourceSchema,
+  ConfidenceGateResultSchema,
+  DuplicateGateResultSchema,
+  ImportanceGateResultSchema,
+  QualityGateResultsSchema,
+  ExtractedInsightSchema as LearningLoopExtractedInsightSchema,
+  InsightValidationStatusSchema,
+  InsightValidationSchema,
+  ApplicationStatsSchema,
+  StoredInsightPayloadSchema,
+  createExtractedInsight,
+  prepareInsightForStorage,
+
+  // Validation contracts
+  ValidationStatusSchema,
+  ValidationDecisionSchema,
+  ValidationSlackInfoSchema,
+  ReminderTrackingSchema,
+  InsightSummarySchema,
+  ValidationItemSchema,
+  ValidationQueueStatsSchema,
+  SlackInteractionUserSchema,
+  SlackInteractionActionSchema,
+  SlackInteractionPayloadSchema,
+  ActionValueSchema,
+  createValidationItem,
+  applyValidationDecision,
+  shouldSendReminder,
+  recordReminderSent,
+  shouldExpire,
+  expireValidationItem,
+  validationItemKey,
+  pendingValidationsKey,
+  validationReminderKey,
+
+  // Template performance contracts
+  TemplateOutcomeSchema,
+  OutcomeDistributionSchema,
+  ABComparisonSchema,
+  TemplatePerformanceSchema,
+  TemplateUsageEventSchema,
+  TemplateOutcomeEventSchema,
+  calculateSuccessRate,
+  createTemplatePerformance,
+  recordTemplateUsage,
+  recordTemplateOutcome,
+  calculateABComparison,
+  updateABComparison,
+  checkDecliningPerformance,
+
+  // Synthesis contracts
+  ObjectionRankingSchema,
+  TemplateRankingSchema,
+  ICPSignalSummarySchema,
+  CompetitiveIntelSummarySchema,
+  CategoryStatsSchema,
+  WeeklySynthesisSchema,
+  SynthesisScheduleSchema,
+  createEmptySynthesis,
+
+  // Webhook API contracts
+  WebhookAuthHeadersSchema,
+  InsightExtractionRequestSchema,
+  InsightExtractionResponseSchema,
+  InsightExtractionErrorSchema,
+  ValidationCallbackRequestSchema,
+  ValidationCallbackResponseSchema,
+  SynthesisRequestSchema,
+  SynthesisResponseSchema,
+  SynthesisErrorSchema,
+  TemplateOutcomeRequestSchema,
+  TemplateOutcomeResponseSchema,
+  HealthCheckResponseSchema as LearningLoopHealthCheckResponseSchema,
+  QueueStatusResponseSchema,
+  StatsResponseSchema,
+  WebhookErrorCodes,
+  WEBHOOK_ROUTES,
+  HTTP_STATUS as LEARNING_LOOP_HTTP_STATUS,
+  validateWebhookSecret as validateLearningLoopWebhookSecret,
+} from './learning-loop';
+
+// Re-export learning-loop contract types
+export type {
+  InsightCategory as LearningLoopInsightCategory,
+  InsightImportance,
+  InsightSourceType,
+  InsightSource,
+  ConfidenceGateResult,
+  DuplicateGateResult,
+  ImportanceGateResult,
+  QualityGateResults,
+  ExtractedInsight as LearningLoopExtractedInsight,
+  InsightValidationStatus,
+  InsightValidation,
+  ApplicationStats,
+  StoredInsightPayload,
+  ValidationStatus,
+  ValidationDecision,
+  ValidationSlackInfo,
+  ReminderTracking,
+  InsightSummary,
+  ValidationItem,
+  ValidationQueueStats,
+  SlackInteractionUser,
+  SlackInteractionAction,
+  SlackInteractionPayload,
+  ActionValue,
+  TemplateOutcome,
+  OutcomeDistribution,
+  ABComparison,
+  TemplatePerformance,
+  TemplateUsageEvent,
+  TemplateOutcomeEvent,
+  DecliningAlert,
+  ObjectionRanking,
+  TemplateRanking,
+  ICPSignalSummary,
+  CompetitiveIntelSummary,
+  CategoryStats,
+  WeeklySynthesis,
+  SynthesisSchedule,
+  SynthesisSlackBlocks,
+  WebhookAuthHeaders,
+  InsightExtractionRequest,
+  InsightExtractionResponse,
+  InsightExtractionError,
+  ValidationCallbackRequest,
+  ValidationCallbackResponse,
+  SynthesisRequest,
+  SynthesisResponse,
+  SynthesisError,
+  TemplateOutcomeRequest,
+  TemplateOutcomeResponse,
+  HealthCheckResponse as LearningLoopHealthCheckResponse,
+  QueueStatusResponse,
+  StatsResponse,
+  WebhookErrorCode,
+} from './learning-loop';
+
+// Re-export learning-loop internal types with 'LearningLoop' prefix to avoid conflicts
+export type {
+  LearningLoopConfig,
+  PendingExtraction,
+  PendingValidation,
+  RecentInsight,
+  SessionError as LearningLoopSessionError,
+  SessionMetrics as LearningLoopSessionMetrics,
+  LearningLoopState,
+  ExtractionRequest,
+  ExtractionResult,
+  QualityGateEvaluation,
+  KBWriteResult,
+  LogEventType as LearningLoopLogEventType,
+  LogEvent as LearningLoopLogEvent,
+} from './learning-loop';
+
+export {
+  DEFAULT_CONFIG as LEARNING_LOOP_DEFAULT_CONFIG,
+  createInitialState as createLearningLoopInitialState,
+} from './learning-loop';
+
+// Export learning-loop configuration
+export {
+  loadConfig as loadLearningLoopConfig,
+  loadEnvConfig as loadLearningLoopEnvConfig,
+  validateConfig as validateLearningLoopConfig,
+  ENV_VARS as LEARNING_LOOP_ENV_VARS,
+  type EnvConfig as LearningLoopEnvConfig,
+} from './learning-loop';
+
+// Export learning-loop logger
+export {
+  LearningLoopLogger,
+  createLogger as createLearningLoopLogger,
+  createChildLogger as createLearningLoopChildLogger,
+  getLogger as getLearningLoopLogger,
+  setLogger as setLearningLoopLogger,
+  type LoggerConfig as LearningLoopLoggerConfig,
+} from './learning-loop';
