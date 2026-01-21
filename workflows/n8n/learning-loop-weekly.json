@@ -1,0 +1,687 @@
+{
+  "name": "Learning Loop - Weekly Synthesis",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtDay": 1,
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Monday 8 AM UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "learning-loop-weekly",
+        "authentication": "headerAuth",
+        "options": {
+          "rawBody": false
+        },
+        "responseMode": "responseNode"
+      },
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 500],
+      "webhookId": "learning-loop-weekly"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-secret",
+              "leftValue": "={{ $json.headers?.['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [300, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'AUTH_FAILED', message: 'Invalid webhook secret' } }) }}",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "auth-failed-response",
+      "name": "Auth Failed Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [500, 650]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate last week's date range for weekly synthesis\nconst today = new Date();\n\n// Get last Monday\nconst lastMonday = new Date(today);\nlastMonday.setDate(today.getDate() - 7 - (today.getDay() === 0 ? 6 : today.getDay() - 1));\nlastMonday.setUTCHours(0, 0, 0, 0);\n\n// Get last Sunday\nconst lastSunday = new Date(lastMonday);\nlastSunday.setDate(lastMonday.getDate() + 6);\nlastSunday.setUTCHours(23, 59, 59, 999);\n\nreturn [{\n  json: {\n    source: 'cron',\n    week_start: lastMonday.toISOString().split('T')[0],\n    week_end: lastSunday.toISOString().split('T')[0],\n    brain_id: $env.DEFAULT_BRAIN_ID || 'default',\n    config: {\n      include_template_performance: true,\n      generate_recommendations: true\n    }\n  }\n}];"
+      },
+      "id": "build-cron-request",
+      "name": "Build Cron Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse manual webhook request\nconst body = $input.first().json.body || {};\n\n// Allow custom week or default to last week\nlet weekStart, weekEnd;\nif (body.week_start && body.week_end) {\n  weekStart = body.week_start;\n  weekEnd = body.week_end;\n} else {\n  const today = new Date();\n  const lastMonday = new Date(today);\n  lastMonday.setDate(today.getDate() - 7 - (today.getDay() === 0 ? 6 : today.getDay() - 1));\n  const lastSunday = new Date(lastMonday);\n  lastSunday.setDate(lastMonday.getDate() + 6);\n  \n  weekStart = lastMonday.toISOString().split('T')[0];\n  weekEnd = lastSunday.toISOString().split('T')[0];\n}\n\nreturn [{\n  json: {\n    source: 'manual',\n    week_start: weekStart,\n    week_end: weekEnd,\n    brain_id: body.brain_id || $env.DEFAULT_BRAIN_ID || 'default',\n    config: {\n      include_template_performance: body.config?.include_template_performance !== false,\n      generate_recommendations: body.config?.generate_recommendations !== false\n    }\n  }\n}];"
+      },
+      "id": "parse-manual-request",
+      "name": "Parse Manual Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 400]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "merge-triggers",
+      "name": "Merge Triggers",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [700, 350]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/learning-loop/weekly-synthesis",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 300000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "call-synthesis-agent",
+      "name": "Call Synthesis Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 350],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-agent-success",
+      "name": "Agent Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 350]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_REPORTS_CHANNEL || '#gtm-reports' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  {\n    type: 'header',\n    text: { type: 'plain_text', text: '📈 Weekly Learning Report', emoji: true }\n  },\n  {\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: '*Week of ' + $json.data?.week_start + ' - ' + $json.data?.week_end + '*'\n    }\n  },\n  { type: 'divider' },\n  {\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: '*📊 Volume*\\n• Insights extracted: ' + ($json.data?.volume?.extracted || 0) + '\\n• Validated & added to KB: ' + ($json.data?.volume?.validated || 0) + '\\n• Rejected: ' + ($json.data?.volume?.rejected || 0) + '\\n• Pending review: ' + ($json.data?.volume?.pending || 0)\n    }\n  },\n  { type: 'divider' },\n  {\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: '*🎯 Top Themes*\\n' + (($json.data?.top_themes || []).slice(0, 3).map((t, i) => (i + 1) + '. *' + t.name + '* (' + t.count + ' instances)\\n   ' + (t.action || 'No action taken')).join('\\n') || 'No themes identified')\n    }\n  },\n  { type: 'divider' },\n  {\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: '*📧 Template Performance*\\n' + (($json.data?.template_performance || []).slice(0, 3).map(t => '• ' + t.name + ': ' + t.sends + ' sends, ' + t.reply_rate + '% reply rate ' + (t.trend === 'up' ? '⬆️' : t.trend === 'down' ? '⬇️' : '➡️')).join('\\n') || 'No template data')\n    }\n  },\n  { type: 'divider' },\n  {\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: '*💡 Recommendations*\\n' + (($json.data?.recommendations || []).slice(0, 3).map((r, i) => (i + 1) + '. ' + r).join('\\n') || 'No recommendations')\n    }\n  },\n  {\n    type: 'actions',\n    elements: [\n      {\n        type: 'button',\n        text: { type: 'plain_text', text: '📄 Full Report', emoji: true },\n        url: $json.data?.report_url || 'https://app.atlasgtm.com/reports/weekly'\n      },\n      {\n        type: 'button',\n        text: { type: 'plain_text', text: '📊 Dashboard', emoji: true },\n        url: $json.data?.dashboard_url || 'https://app.atlasgtm.com/dashboard'\n      }\n    ]\n  }\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-weekly-report",
+      "name": "Slack Weekly Report",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1300, 250],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-kb-updates",
+              "leftValue": "={{ ($json.data?.kb_updates || []).length }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-kb-updates",
+      "name": "Has KB Updates?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1500, 250]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/learning-loop/write-kb",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ insights: $json.data?.kb_updates || [], brain_id: $('Merge Triggers').first().json?.brain_id || 'default', source: 'weekly_synthesis', week: $json.data?.week_start + ' to ' + $json.data?.week_end }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "write-to-kb",
+      "name": "Write to KB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1700, 150],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate final results\nconst mergeData = $('Merge Triggers').first().json;\nconst agentResult = $('Call Synthesis Agent').first().json;\nconst kbWriteResult = $('Write to KB').first()?.json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      week_start: mergeData.week_start,\n      week_end: mergeData.week_end,\n      volume: agentResult.data?.volume,\n      top_themes_count: (agentResult.data?.top_themes || []).length,\n      recommendations_count: (agentResult.data?.recommendations || []).length,\n      kb_updates_written: kbWriteResult?.data?.written || 0,\n      report_url: agentResult.data?.report_url,\n      processed_at: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1900, 250]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-manual-source",
+              "leftValue": "={{ $('Merge Triggers').first().json?.source }}",
+              "rightValue": "manual",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-needs-response",
+      "name": "Needs HTTP Response?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2100, 250]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Aggregate Results').first().json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2300, 150]
+    },
+    {
+      "parameters": {},
+      "id": "no-op-cron",
+      "name": "No Op (Cron)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2300, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// No KB updates to write - continue to aggregate\nconst mergeData = $('Merge Triggers').first().json;\nconst agentResult = $('Call Synthesis Agent').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      week_start: mergeData.week_start,\n      week_end: mergeData.week_end,\n      volume: agentResult.data?.volume,\n      top_themes_count: (agentResult.data?.top_themes || []).length,\n      recommendations_count: (agentResult.data?.recommendations || []).length,\n      kb_updates_written: 0,\n      report_url: agentResult.data?.report_url,\n      processed_at: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "skip-kb-write",
+      "name": "Skip KB Write",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1700, 350]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_ALERTS_CHANNEL || '#gtm-alerts' }}",
+        "text": "={{ '⚠️ *Weekly Synthesis Failed*\\n\\n*Week:* ' + ($('Merge Triggers').first().json?.week_start || 'Unknown') + ' - ' + ($('Merge Triggers').first().json?.week_end || 'Unknown') + '\\n*Error:* ' + ($json.error?.message || 'Unknown error') + '\\n*Timestamp:* ' + new Date().toISOString() }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": true
+        }
+      },
+      "id": "slack-error-alert",
+      "name": "Slack Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1300, 500],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-manual-error",
+              "leftValue": "={{ $('Merge Triggers').first().json?.source }}",
+              "rightValue": "manual",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-needs-error-response",
+      "name": "Needs Error Response?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1500, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'SYNTHESIS_FAILED', message: $('Call Synthesis Agent').first().json?.error?.message || 'Weekly synthesis failed' } }) }}",
+        "options": {
+          "responseCode": 500,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1700, 450]
+    },
+    {
+      "parameters": {},
+      "id": "no-op-error-cron",
+      "name": "No Op (Error Cron)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1700, 600]
+    }
+  ],
+  "connections": {
+    "Monday 8 AM UTC": {
+      "main": [
+        [
+          {
+            "node": "Build Cron Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Parse Manual Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Failed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Cron Request": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Manual Request": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Triggers": {
+      "main": [
+        [
+          {
+            "node": "Call Synthesis Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Synthesis Agent": {
+      "main": [
+        [
+          {
+            "node": "Agent Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent Success?": {
+      "main": [
+        [
+          {
+            "node": "Slack Weekly Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Weekly Report": {
+      "main": [
+        [
+          {
+            "node": "Has KB Updates?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has KB Updates?": {
+      "main": [
+        [
+          {
+            "node": "Write to KB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip KB Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to KB": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip KB Write": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Needs HTTP Response?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs HTTP Response?": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Op (Cron)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Needs Error Response?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Error Response?": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Op (Error Cron)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "UTC"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "atlas-gtm-learning-loop-weekly"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "learning-loop"
+    },
+    {
+      "name": "weekly"
+    },
+    {
+      "name": "cron"
+    },
+    {
+      "name": "atlas-gtm"
+    }
+  ],
+  "pinData": {},
+  "notes": [
+    {
+      "id": "note-1",
+      "content": "## Learning Loop - Weekly Synthesis\n\n### Purpose\nGenerate weekly synthesis reports and update KB with validated insights every Monday.\n\n### Triggers\n1. **Cron**: Every Monday at 8:00 AM UTC\n2. **Manual Webhook**: HTTP POST for ad-hoc synthesis\n\n### Environment Variables Required:\n- `WEBHOOK_SECRET`: Secret for authenticating webhook requests\n- `AGENT_BASE_URL`: URL of the agent service (default: http://localhost:3001)\n- `SLACK_REPORTS_CHANNEL`: Channel for weekly reports (default: #gtm-reports)\n- `SLACK_ALERTS_CHANNEL`: Channel for errors (default: #gtm-alerts)\n- `DEFAULT_BRAIN_ID`: Default brain for synthesis\n\n### Workflow Flow:\n1. **Triggers**: Cron (Mon 8 AM UTC) or Manual webhook\n2. **Build Request**: Calculate last week's date range\n3. **Call Synthesis Agent**: 300s timeout (5 min), 3 retries\n4. **Slack Weekly Report**: Send Block Kit formatted report\n5. **Write to KB**: If validated insights exist, write to Qdrant\n6. **Aggregate Results**: Combine all data for response\n\n### Manual Request Format:\n```json\n{\n  \"week_start\": \"2024-01-08\",\n  \"week_end\": \"2024-01-14\",\n  \"brain_id\": \"default\",\n  \"config\": {\n    \"include_template_performance\": true,\n    \"generate_recommendations\": true\n  }\n}\n```\n\n### Test with curl:\n```bash\ncurl -X POST http://localhost:5678/webhook/learning-loop-weekly \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $WEBHOOK_SECRET\" \\\n  -d '{}'\n```\n\n### Weekly Report Format:\n```\n📈 *Weekly Learning Report*\n*Week of Jan 8-14, 2024*\n\n*📊 Volume*\n• Insights extracted: 47\n• Validated & added to KB: 32\n• Rejected: 8\n• Pending review: 7\n\n*🎯 Top Themes*\n1. **Budget objection reframe** (8 instances)\n2. **Competitor X weakness** (6 instances)\n\n*📧 Template Performance*\n• Cold intro v3: 245 sends, 11.4% ⬆️\n\n*💡 Recommendations*\n1. Retire \"Follow-up v2\" - underperforming\n\n[📄 Full Report] [📊 Dashboard]\n```",
+      "position": [100, 700]
+    }
+  ]
+}

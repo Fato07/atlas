@@ -1,0 +1,636 @@
+{
+  "name": "Meeting Prep - Transcript Analysis",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meeting-prep-analysis",
+        "authentication": "headerAuth",
+        "options": {
+          "rawBody": false
+        },
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "Fireflies Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 300],
+      "webhookId": "meeting-prep-analysis"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-secret",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'AUTH_FAILED', message: 'Invalid webhook secret' } }) }}",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "auth-failed-response",
+      "name": "Auth Failed Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [500, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Fireflies webhook payload\nconst body = $input.first().json.body;\n\n// Validate required fields\nif (!body.event || body.event !== 'transcript_ready') {\n  throw new Error('Invalid event type: expected transcript_ready');\n}\n\nif (!body.transcript_text && !body.transcript_url) {\n  throw new Error('Missing transcript content or URL');\n}\n\n// Extract external attendees (non-internal domain)\nconst internalDomains = ($env.INTERNAL_DOMAINS || 'codesdevs.com,atlasgtm.com').split(',');\nconst participants = body.participants || [];\nconst externalAttendees = participants.filter(p => {\n  return !internalDomains.some(domain => p.includes('@' + domain.trim()));\n});\n\nreturn [{\n  json: {\n    meeting_id: body.meeting_id,\n    title: body.title || 'Call Transcript',\n    attendees: externalAttendees,\n    duration_minutes: body.duration_minutes || 0,\n    transcript: body.transcript_text || '',\n    transcript_url: body.transcript_url || null,\n    action_items: body.action_items || [],\n    source: 'fireflies',\n    brain_id: body.brain_id || $env.DEFAULT_BRAIN_ID || 'default'\n  }\n}];"
+      },
+      "id": "parse-transcript",
+      "name": "Parse Transcript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/meeting-prep/analyze",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 180000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "call-analysis-agent",
+      "name": "Call Analysis Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-agent-success",
+      "name": "Agent Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-qualified",
+              "leftValue": "={{ $json.data?.bant_score }}",
+              "rightValue": "80",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-qualified",
+      "name": "Highly Qualified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-pipeline",
+              "leftValue": "={{ $json.data?.bant_score }}",
+              "rightValue": "60",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-pipeline",
+      "name": "Pipeline Worthy?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_QUALIFIED_CHANNEL || '#qualified-leads' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"🎉 *Qualified Lead from Call!*\\n\\n*Meeting:* \" + ($json.data?.meeting_title || \"Call\") + \"\\n*Company:* \" + ($json.data?.company || \"Unknown\") + \"\\n*BANT Score:* \" + $json.data?.bant_score + \"/100\\n\\n*BANT Breakdown:*\\n• Budget: \" + ($json.data?.bant?.budget || \"N/A\") + \"\\n• Authority: \" + ($json.data?.bant?.authority || \"N/A\") + \"\\n• Need: \" + ($json.data?.bant?.need || \"N/A\") + \"\\n• Timeline: \" + ($json.data?.bant?.timeline || \"N/A\") + \"\\n\\n*Key Insights:*\\n\" + (($json.data?.key_insights || []).slice(0, 3).map(i => \"• \" + i).join(\"\\n\") || \"None extracted\") + \"\\n\\n*Recommended Next Steps:*\\n\" + (($json.data?.next_steps || []).slice(0, 3).map((s, i) => (i + 1) + \". \" + s).join(\"\\n\") || \"No recommendations\") } },\n  { \"type\": \"divider\" },\n  { \"type\": \"actions\", \"elements\": [\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✅ Update CRM\", \"emoji\": true }, \"style\": \"primary\", \"action_id\": \"update_crm\", \"value\": JSON.stringify({ meeting_id: $json.data?.meeting_id, action: \"update_crm\", stage: \"qualified\" }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"📅 Schedule Demo\", \"emoji\": true }, \"action_id\": \"schedule_demo\", \"value\": JSON.stringify({ meeting_id: $json.data?.meeting_id, action: \"schedule_demo\" }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"📄 View Transcript\", \"emoji\": true }, \"action_id\": \"view_transcript\", \"url\": $json.data?.transcript_url || \"#\" }\n  ]}\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-qualified",
+      "name": "Slack Qualified Lead",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1350, 0],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_PIPELINE_CHANNEL || '#sales-pipeline' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"📊 *Pipeline Update: Call Completed*\\n\\n*Meeting:* \" + ($json.data?.meeting_title || \"Call\") + \"\\n*Company:* \" + ($json.data?.company || \"Unknown\") + \"\\n*BANT Score:* \" + $json.data?.bant_score + \"/100\\n\\n*Summary:*\\n\" + ($json.data?.summary || \"No summary available\").substring(0, 400) + \"\\n\\n*Follow-up Task Created:* \" + ($json.data?.follow_up_task || \"Review and schedule next steps\") } },\n  { \"type\": \"divider\" },\n  { \"type\": \"actions\", \"elements\": [\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"➕ Add to Pipeline\", \"emoji\": true }, \"style\": \"primary\", \"action_id\": \"add_pipeline\", \"value\": JSON.stringify({ meeting_id: $json.data?.meeting_id, action: \"add_pipeline\" }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"📨 Schedule Follow-up\", \"emoji\": true }, \"action_id\": \"schedule_followup\", \"value\": JSON.stringify({ meeting_id: $json.data?.meeting_id, action: \"schedule_followup\" }) }\n  ]}\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-pipeline",
+      "name": "Slack Pipeline Update",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1350, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_NURTURE_CHANNEL || '#nurture-queue' }}",
+        "text": "={{ '📝 *Nurture Queue: Low BANT Score*\\n\\n*Meeting:* ' + ($json.data?.meeting_title || 'Call') + '\\n*Company:* ' + ($json.data?.company || 'Unknown') + '\\n*BANT Score:* ' + $json.data?.bant_score + '/100\\n\\n*Reason:* ' + ($json.data?.nurture_reason || 'Did not meet qualification threshold') + '\\n\\n*Suggested Nurture:* ' + ($json.data?.nurture_recommendation || 'Add to drip campaign') }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-nurture",
+      "name": "Slack Nurture Queue",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1350, 400],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.ATTIO_API_URL || 'https://api.attio.com' }}/v2/objects/people/records",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.ATTIO_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ data: { email_addresses: ($json.data?.attendees || []).filter(a => a.includes('@')).map(email => ({ email_address: email })), custom_fields: { bant_score: $json.data?.bant_score, last_meeting_at: new Date().toISOString(), meeting_summary: ($json.data?.summary || '').substring(0, 500), deal_stage: $json.data?.bant_score >= 80 ? 'Qualified' : ($json.data?.bant_score >= 60 ? 'Pipeline' : 'Nurture') } } }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "update-crm",
+      "name": "Update CRM (Attio)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1550, 200],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/learning-loop/insight",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ source: 'call_transcript', source_id: $('Parse Transcript').first().json?.meeting_id, content: ($('Call Analysis Agent').first().json?.data?.key_insights || []).join('; '), context: { company: $('Call Analysis Agent').first().json?.data?.company, meeting_type: 'discovery', bant_score: $('Call Analysis Agent').first().json?.data?.bant_score }, brain_id: $('Parse Transcript').first().json?.brain_id || 'default' }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "forward-to-learning-loop",
+      "name": "Forward to Learning Loop",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1750, 200],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate final response\nconst parseResult = $('Parse Transcript').first().json;\nconst agentResult = $('Call Analysis Agent').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      meeting_id: parseResult.meeting_id,\n      title: parseResult.title,\n      bant_score: agentResult.data?.bant_score,\n      routing: agentResult.data?.bant_score >= 80 ? 'qualified' : (agentResult.data?.bant_score >= 60 ? 'pipeline' : 'nurture'),\n      crm_updated: true,\n      learning_loop_notified: true,\n      processed_at: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "aggregate-response",
+      "name": "Aggregate Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1950, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2150, 200]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_ALERTS_CHANNEL || '#gtm-alerts' }}",
+        "text": "={{ '⚠️ *Transcript Analysis Failed*\\n\\n*Meeting ID:* ' + ($('Parse Transcript').first().json?.meeting_id || 'Unknown') + '\\n*Title:* ' + ($('Parse Transcript').first().json?.title || 'Unknown') + '\\n*Error:* ' + ($json.error?.message || 'Unknown error') + '\\n*Timestamp:* ' + new Date().toISOString() }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": true
+        }
+      },
+      "id": "slack-error-alert",
+      "name": "Slack Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1100, 450],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'ANALYSIS_FAILED', message: $json.error?.message || 'Transcript analysis failed' } }) }}",
+        "options": {
+          "responseCode": 500,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1350, 500]
+    }
+  ],
+  "connections": {
+    "Fireflies Webhook": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Parse Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Failed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Transcript": {
+      "main": [
+        [
+          {
+            "node": "Call Analysis Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Analysis Agent": {
+      "main": [
+        [
+          {
+            "node": "Agent Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent Success?": {
+      "main": [
+        [
+          {
+            "node": "Highly Qualified?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Highly Qualified?": {
+      "main": [
+        [
+          {
+            "node": "Slack Qualified Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pipeline Worthy?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pipeline Worthy?": {
+      "main": [
+        [
+          {
+            "node": "Slack Pipeline Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Nurture Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Qualified Lead": {
+      "main": [
+        [
+          {
+            "node": "Update CRM (Attio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Pipeline Update": {
+      "main": [
+        [
+          {
+            "node": "Update CRM (Attio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Nurture Queue": {
+      "main": [
+        [
+          {
+            "node": "Update CRM (Attio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update CRM (Attio)": {
+      "main": [
+        [
+          {
+            "node": "Forward to Learning Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward to Learning Loop": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Response": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "atlas-gtm-meeting-prep-analysis"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "meeting-prep"
+    },
+    {
+      "name": "transcript-analysis"
+    },
+    {
+      "name": "fireflies"
+    },
+    {
+      "name": "atlas-gtm"
+    }
+  ],
+  "pinData": {},
+  "notes": [
+    {
+      "id": "note-1",
+      "content": "## Meeting Prep - Transcript Analysis\n\n### Purpose\nAnalyze call transcripts from Fireflies.ai and extract BANT insights after meetings.\n\n### Environment Variables Required:\n- `WEBHOOK_SECRET`: Secret for authenticating webhook requests\n- `AGENT_BASE_URL`: URL of the agent service (default: http://localhost:3001)\n- `SLACK_QUALIFIED_CHANNEL`: Channel for qualified leads (default: #qualified-leads)\n- `SLACK_PIPELINE_CHANNEL`: Channel for pipeline updates (default: #sales-pipeline)\n- `SLACK_NURTURE_CHANNEL`: Channel for nurture queue (default: #nurture-queue)\n- `SLACK_ALERTS_CHANNEL`: Channel for errors (default: #gtm-alerts)\n- `INTERNAL_DOMAINS`: Comma-separated internal email domains\n- `ATTIO_API_URL`: Attio API URL\n- `ATTIO_API_KEY`: Attio API key for CRM updates\n\n### Workflow Flow:\n1. **Fireflies Webhook**: Receives transcript_ready event\n2. **Auth Check**: Validates X-Webhook-Secret header\n3. **Parse Transcript**: Extract meeting details and transcript\n4. **Call Analysis Agent**: BANT scoring with 180s timeout\n5. **Route by BANT Score**:\n   - ≥80: #qualified-leads + CRM \"Qualified\"\n   - ≥60: #sales-pipeline + follow-up task\n   - <60: #nurture-queue + drip campaign\n6. **Update CRM**: Write BANT score and stage to Attio\n7. **Forward to Learning Loop**: Extract insights for KB learning\n\n### Fireflies Webhook Payload:\n```json\n{\n  \"event\": \"transcript_ready\",\n  \"meeting_id\": \"mtg_789\",\n  \"title\": \"Discovery Call - Acme Corp\",\n  \"participants\": [\"john@acme.com\", \"sales@codesdevs.com\"],\n  \"duration_minutes\": 32,\n  \"transcript_url\": \"https://fireflies.ai/transcript/xyz\",\n  \"transcript_text\": \"...\"\n}\n```\n\n### Test with curl:\n```bash\ncurl -X POST http://localhost:5678/webhook/meeting-prep-analysis \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $WEBHOOK_SECRET\" \\\n  -d '{\"event\":\"transcript_ready\",\"meeting_id\":\"mtg_123\",\"title\":\"Discovery Call\",\"participants\":[\"john@acme.com\"],\"transcript_text\":\"Great meeting...\"}'\n```",
+      "position": [100, 600]
+    }
+  ]
+}

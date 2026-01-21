@@ -1,0 +1,656 @@
+{
+  "name": "Reply Handler - Instantly Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "reply-handler-instantly",
+        "authentication": "headerAuth",
+        "options": {
+          "rawBody": false
+        },
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "Instantly Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 300],
+      "webhookId": "reply-handler-instantly"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-secret",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'AUTH_FAILED', message: 'Invalid webhook secret' } }) }}",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "auth-failed-response",
+      "name": "Auth Failed Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [500, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Instantly webhook payload and transform for Reply Handler agent\nconst body = $input.first().json.body;\n\n// Validate required fields\nif (!body.event || body.event !== 'reply_received') {\n  throw new Error('Invalid event type: expected reply_received');\n}\n\nif (!body.lead?.email || !body.email?.body) {\n  throw new Error('Missing required fields: lead.email or email.body');\n}\n\n// Transform to agent format\nconst agentPayload = {\n  source: 'instantly',\n  reply: {\n    lead_email: body.lead.email,\n    lead_name: `${body.lead.first_name || ''} ${body.lead.last_name || ''}`.trim() || body.lead.email,\n    company: body.lead.company_name || 'Unknown',\n    campaign_id: body.campaign_id || null,\n    thread_id: body.email.thread_id || null,\n    subject: body.email.subject || 'No subject',\n    body: body.email.body,\n    received_at: body.email.received_at || new Date().toISOString()\n  },\n  brain_id: body.brain_id || $env.DEFAULT_BRAIN_ID || 'default'\n};\n\nreturn [{ json: agentPayload }];"
+      },
+      "id": "parse-reply-event",
+      "name": "Parse Reply Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/reply-handler/process",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "call-reply-handler",
+      "name": "Call Reply Handler Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-agent-success",
+      "name": "Agent Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-hot",
+              "leftValue": "={{ $json.data?.tier }}",
+              "rightValue": "hot",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-hot",
+      "name": "Is Hot Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-warm",
+              "leftValue": "={{ $json.data?.tier }}",
+              "rightValue": "warm",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-warm",
+      "name": "Is Warm Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-objection",
+              "leftValue": "={{ $json.data?.tier }}",
+              "rightValue": "objection",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-objection",
+      "name": "Is Objection?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 500]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_HOT_LEADS_CHANNEL || '#hot-leads' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"🔥 *Hot Lead Reply*\\n\\n*Lead:* \" + $json.data.lead_name + \" (\" + $json.data.lead_email + \")\\n*Company:* \" + $json.data.company + \"\\n*Tier:* Hot (Score: \" + ($json.data.score || \"N/A\") + \")\\n\\n*Reply Summary:*\\n> \" + ($json.data.reply_summary || $json.data.body || \"\").substring(0, 200) + \"...\\n\\n*Intent Classification:* \" + ($json.data.intent || \"Unknown\") + \"\\n*Recommended Action:* \" + ($json.data.recommended_action || \"Review and respond within 24h\") + \"\\n\\n*Suggested Response:*\\n```\" + ($json.data.suggested_response || \"No suggestion available\").substring(0, 500) + \"```\" } },\n  { \"type\": \"divider\" },\n  { \"type\": \"actions\", \"elements\": [\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✅ Approve & Send\", \"emoji\": true }, \"style\": \"primary\", \"action_id\": \"approve_send\", \"value\": JSON.stringify({ lead_email: $json.data.lead_email, action: \"approve_send\" }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✏️ Edit\", \"emoji\": true }, \"action_id\": \"edit\", \"value\": JSON.stringify({ lead_email: $json.data.lead_email, action: \"edit\" }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"⏸️ Pause\", \"emoji\": true }, \"action_id\": \"pause\", \"value\": JSON.stringify({ lead_email: $json.data.lead_email, action: \"pause\" }) }\n  ]}\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-hot-lead",
+      "name": "Slack Hot Lead",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1350, 0],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_REVIEW_CHANNEL || '#lead-reviews' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"👍 *Warm Lead Reply*\\n\\n*Lead:* \" + $json.data.lead_name + \" (\" + $json.data.lead_email + \")\\n*Company:* \" + $json.data.company + \"\\n*Tier:* Warm\\n\\n*Reply Summary:*\\n> \" + ($json.data.reply_summary || $json.data.body || \"\").substring(0, 200) + \"...\\n\\n*Intent:* \" + ($json.data.intent || \"Interested\") + \"\\n*Suggested Follow-up:* \" + ($json.data.recommended_action || \"Review for follow-up\") } },\n  { \"type\": \"divider\" },\n  { \"type\": \"actions\", \"elements\": [\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"🔥 Upgrade to Hot\", \"emoji\": true }, \"style\": \"primary\", \"action_id\": \"upgrade_hot\", \"value\": JSON.stringify({ lead_email: $json.data.lead_email, action: \"upgrade_hot\" }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"📨 Queue Follow-up\", \"emoji\": true }, \"action_id\": \"queue_followup\", \"value\": JSON.stringify({ lead_email: $json.data.lead_email, action: \"queue_followup\" }) }\n  ]}\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-warm-lead",
+      "name": "Slack Warm Lead",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1350, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_OBJECTIONS_CHANNEL || '#objections' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"🤔 *Objection Received*\\n\\n*Lead:* \" + $json.data.lead_name + \" (\" + $json.data.lead_email + \")\\n*Company:* \" + $json.data.company + \"\\n\\n*Objection Type:* \" + ($json.data.objection_type || \"General\") + \"\\n\\n*Original Message:*\\n> \" + ($json.data.body || \"\").substring(0, 300) + \"\\n\\n*Suggested Response:*\\n```\" + ($json.data.suggested_response || \"Review and craft personalized response\").substring(0, 500) + \"```\" } },\n  { \"type\": \"divider\" },\n  { \"type\": \"actions\", \"elements\": [\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✅ Send Response\", \"emoji\": true }, \"style\": \"primary\", \"action_id\": \"approve_response\", \"value\": JSON.stringify({ lead_email: $json.data.lead_email, action: \"approve_response\" }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"⬆️ Escalate\", \"emoji\": true }, \"action_id\": \"escalate\", \"value\": JSON.stringify({ lead_email: $json.data.lead_email, action: \"escalate\" }) }\n  ]}\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-objection",
+      "name": "Slack Objection",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1350, 400],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log non-interested or other tier responses\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    logged: true,\n    tier: data.data?.tier || 'unknown',\n    lead_email: data.data?.lead_email,\n    timestamp: new Date().toISOString(),\n    action: 'auto_logged_no_notification'\n  }\n}];"
+      },
+      "id": "log-other-tier",
+      "name": "Log Other Tier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 600]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.ATTIO_API_URL || 'https://api.attio.com' }}/v2/objects/people/records",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.ATTIO_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ data: { email_addresses: [{ email_address: $json.data?.lead_email }], custom_fields: { reply_tier: $json.data?.tier, last_reply_at: new Date().toISOString(), reply_intent: $json.data?.intent || 'unknown' } } }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "update-crm",
+      "name": "Update CRM (Attio)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1550, 100],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate final response\nconst originalPayload = $('Parse Reply Event').first().json;\nconst agentResponse = $('Call Reply Handler Agent').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      source: 'instantly',\n      lead_email: originalPayload.reply.lead_email,\n      tier: agentResponse.data?.tier || 'unknown',\n      intent: agentResponse.data?.intent || 'unknown',\n      processed_at: new Date().toISOString(),\n      notifications_sent: true\n    }\n  }\n}];"
+      },
+      "id": "aggregate-response",
+      "name": "Aggregate Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1750, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1950, 200]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_ALERTS_CHANNEL || '#gtm-alerts' }}",
+        "text": "={{ '⚠️ *Reply Handler Error*\\n\\n*Source:* Instantly\\n*Error:* ' + ($json.error?.message || 'Unknown error') + '\\n*Lead Email:* ' + ($('Parse Reply Event').first().json?.reply?.lead_email || 'Unknown') + '\\n*Timestamp:* ' + new Date().toISOString() }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": true
+        }
+      },
+      "id": "slack-error-alert",
+      "name": "Slack Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1100, 450],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'AGENT_ERROR', message: $json.error?.message || 'Agent processing failed' } }) }}",
+        "options": {
+          "responseCode": 500,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1350, 450]
+    }
+  ],
+  "connections": {
+    "Instantly Webhook": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Parse Reply Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Failed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Reply Event": {
+      "main": [
+        [
+          {
+            "node": "Call Reply Handler Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Reply Handler Agent": {
+      "main": [
+        [
+          {
+            "node": "Agent Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent Success?": {
+      "main": [
+        [
+          {
+            "node": "Is Hot Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Hot Lead?": {
+      "main": [
+        [
+          {
+            "node": "Slack Hot Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Warm Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Warm Lead?": {
+      "main": [
+        [
+          {
+            "node": "Slack Warm Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Objection?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Objection?": {
+      "main": [
+        [
+          {
+            "node": "Slack Objection",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Other Tier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Hot Lead": {
+      "main": [
+        [
+          {
+            "node": "Update CRM (Attio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Warm Lead": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Objection": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Other Tier": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update CRM (Attio)": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Response": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "atlas-gtm-reply-handler-instantly"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "reply-handling"
+    },
+    {
+      "name": "instantly"
+    },
+    {
+      "name": "atlas-gtm"
+    }
+  ],
+  "pinData": {},
+  "notes": [
+    {
+      "id": "note-1",
+      "content": "## Reply Handler - Instantly Webhook\n\n### Purpose\nProcess incoming email replies from Instantly.ai campaigns.\n\n### Environment Variables Required:\n- `WEBHOOK_SECRET`: Secret for authenticating webhook requests\n- `AGENT_BASE_URL`: URL of the agent service (default: http://localhost:3001)\n- `SLACK_HOT_LEADS_CHANNEL`: Slack channel for hot leads (default: #hot-leads)\n- `SLACK_REVIEW_CHANNEL`: Slack channel for warm leads (default: #lead-reviews)\n- `SLACK_OBJECTIONS_CHANNEL`: Slack channel for objections (default: #objections)\n- `SLACK_ALERTS_CHANNEL`: Slack channel for errors (default: #gtm-alerts)\n- `ATTIO_API_URL`: Attio API URL (default: https://api.attio.com)\n- `ATTIO_API_KEY`: Attio API key for CRM updates\n\n### Workflow Flow:\n1. **Instantly Webhook**: Receives POST from Instantly on reply_received event\n2. **Auth Check**: Validates X-Webhook-Secret header\n3. **Parse Reply Event**: Transforms Instantly payload to agent format\n4. **Call Reply Handler Agent**: POSTs to agent with 60s timeout, 3 retries\n5. **Route by Tier**: Routes based on agent response tier\n   - Hot → #hot-leads + CRM update\n   - Warm → #lead-reviews\n   - Objection → #objections\n   - Other → Log only\n6. **Success/Error Response**: Returns result to Instantly\n\n### Instantly Webhook Payload:\n```json\n{\n  \"event\": \"reply_received\",\n  \"campaign_id\": \"camp_123\",\n  \"lead\": { \"email\": \"...\", \"first_name\": \"...\", \"company_name\": \"...\" },\n  \"email\": { \"subject\": \"...\", \"body\": \"...\", \"received_at\": \"...\" }\n}\n```\n\n### Test with curl:\n```bash\ncurl -X POST http://localhost:5678/webhook/reply-handler-instantly \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $WEBHOOK_SECRET\" \\\n  -d '{\"event\":\"reply_received\",\"lead\":{\"email\":\"test@example.com\",\"first_name\":\"John\"},\"email\":{\"body\":\"Thanks for reaching out!\"}}'\n```",
+      "position": [100, 550]
+    }
+  ]
+}

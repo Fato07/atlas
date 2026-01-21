@@ -1,0 +1,622 @@
+{
+  "name": "Meeting Prep - Brief Generation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meeting-prep-brief",
+        "authentication": "headerAuth",
+        "options": {
+          "rawBody": false
+        },
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "HTTP Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 200],
+      "webhookId": "meeting-prep-brief"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "calendar-poll-trigger",
+      "name": "Calendar Poll (Every 5 min)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [100, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-secret",
+              "leftValue": "={{ $json.headers?.['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [300, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'AUTH_FAILED', message: 'Invalid webhook secret' } }) }}",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "auth-failed-response",
+      "name": "Auth Failed Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [500, 350]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.GOOGLE_CALENDAR_API_URL || 'https://www.googleapis.com/calendar/v3' }}/calendars/primary/events",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "timeMin",
+              "value": "={{ new Date().toISOString() }}"
+            },
+            {
+              "name": "timeMax",
+              "value": "={{ new Date(Date.now() + 35 * 60 * 1000).toISOString() }}"
+            },
+            {
+              "name": "singleEvents",
+              "value": "true"
+            },
+            {
+              "name": "orderBy",
+              "value": "startTime"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "fetch-upcoming-meetings",
+      "name": "Fetch Upcoming Meetings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 400],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "GOOGLE_CALENDAR_CREDENTIALS_ID",
+          "name": "Google Calendar"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter meetings to those starting in 25-35 minutes with external attendees\nconst events = $input.first().json.items || [];\nconst internalDomains = ($env.INTERNAL_DOMAINS || 'codesdevs.com,atlasgtm.com').split(',');\n\nconst now = Date.now();\nconst thirtyMinFromNow = now + 30 * 60 * 1000;\nconst fiveMinWindow = 5 * 60 * 1000; // 5 minute window\n\nconst meetingsToProcess = events.filter(event => {\n  const startTime = new Date(event.start?.dateTime || event.start?.date).getTime();\n  const timeUntilStart = startTime - now;\n  \n  // Check if meeting starts within 25-35 minutes\n  if (timeUntilStart < 25 * 60 * 1000 || timeUntilStart > 35 * 60 * 1000) {\n    return false;\n  }\n  \n  // Check for external attendees\n  const attendees = event.attendees || [];\n  const hasExternalAttendee = attendees.some(a => {\n    const email = a.email || '';\n    return !internalDomains.some(domain => email.endsWith('@' + domain.trim()));\n  });\n  \n  return hasExternalAttendee;\n});\n\nif (meetingsToProcess.length === 0) {\n  return []; // No meetings to process\n}\n\nreturn meetingsToProcess.map(event => ({\n  json: {\n    source: 'calendar_poll',\n    meeting: {\n      title: event.summary || 'Untitled Meeting',\n      start_time: event.start?.dateTime || event.start?.date,\n      calendar_event_id: event.id,\n      attendees: (event.attendees || []).filter(a => {\n        const email = a.email || '';\n        return !internalDomains.some(domain => email.endsWith('@' + domain.trim()));\n      }).map(a => ({\n        email: a.email,\n        name: a.displayName || a.email.split('@')[0]\n      }))\n    }\n  }\n}));"
+      },
+      "id": "filter-external-meetings",
+      "name": "Filter External Meetings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse direct webhook request for meeting brief\nconst body = $input.first().json.body;\n\nif (!body.meeting) {\n  throw new Error('Missing required field: meeting');\n}\n\nconst meeting = body.meeting;\nif (!meeting.attendees || meeting.attendees.length === 0) {\n  throw new Error('Meeting must have at least one attendee');\n}\n\nreturn [{\n  json: {\n    source: 'http_webhook',\n    meeting: {\n      title: meeting.title || 'Meeting',\n      start_time: meeting.start_time || new Date(Date.now() + 30 * 60 * 1000).toISOString(),\n      calendar_event_id: meeting.calendar_event_id || null,\n      attendees: meeting.attendees.map(a => ({\n        email: typeof a === 'string' ? a : a.email,\n        name: typeof a === 'string' ? a.split('@')[0] : (a.name || a.email.split('@')[0])\n      }))\n    },\n    brain_id: body.brain_id || $env.DEFAULT_BRAIN_ID || 'default',\n    delivery: body.delivery || {\n      slack_channel: $env.SLACK_BRIEFS_CHANNEL || '#sales-briefs'\n    }\n  }\n}];"
+      },
+      "id": "parse-webhook-request",
+      "name": "Parse Webhook Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 100]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "merge-triggers",
+      "name": "Merge Triggers",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [700, 250]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/meeting-prep/brief",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ meeting: $json.meeting, brain_id: $json.brain_id || 'default', delivery: $json.delivery || { slack_channel: '#sales-briefs' } }) }}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "call-meeting-prep-agent",
+      "name": "Call Meeting Prep Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 250],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-agent-success",
+      "name": "Agent Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 250]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.data?.delivery?.slack_channel || $env.SLACK_BRIEFS_CHANNEL || '#sales-briefs' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  {\n    type: 'header',\n    text: { type: 'plain_text', text: '📋 Pre-Call Brief: ' + ($json.data?.company || 'Meeting'), emoji: true }\n  },\n  {\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: '*Meeting:* ' + ($json.data?.meeting_title || 'Call') + '\\n*Time:* In 30 minutes\\n*Attendee:* ' + ($json.data?.attendee_name || 'Unknown') + ' (' + ($json.data?.attendee_title || '') + ')'\n    }\n  },\n  { type: 'divider' },\n  {\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: '*🏢 Company Context*\\n' + ($json.data?.company_context || 'No company context available').substring(0, 500)\n    }\n  },\n  {\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: '*👤 Contact Intel*\\n' + ($json.data?.contact_intel || 'No contact intel available').substring(0, 500)\n    }\n  },\n  {\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: '*💬 Conversation History*\\n' + ($json.data?.conversation_history || 'No prior conversation').substring(0, 500)\n    }\n  },\n  {\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: '*🎯 Recommended Talking Points*\\n' + (($json.data?.talking_points || []).slice(0, 5).map((p, i) => (i + 1) + '. ' + p).join('\\n') || 'No talking points')\n    }\n  },\n  {\n    type: 'actions',\n    elements: [\n      {\n        type: 'button',\n        text: { type: 'plain_text', text: '📄 Full Brief', emoji: true },\n        url: $json.data?.brief_url || 'https://app.atlasgtm.com/briefs/' + ($json.data?.brief_id || 'unknown')\n      }\n    ]\n  }\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-brief-delivery",
+      "name": "Slack Brief Delivery",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1300, 150],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store brief ID for reference\nconst agentResponse = $input.first().json;\n\nreturn [{\n  json: {\n    brief_id: agentResponse.data?.brief_id || 'unknown',\n    meeting_title: agentResponse.data?.meeting_title,\n    attendee_email: agentResponse.data?.attendee_email,\n    generated_at: new Date().toISOString(),\n    delivery_status: 'sent'\n  }\n}];"
+      },
+      "id": "store-brief-id",
+      "name": "Store Brief ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 150]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-webhook-source",
+              "leftValue": "={{ $('Merge Triggers').first().json?.source }}",
+              "rightValue": "http_webhook",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-needs-response",
+      "name": "Needs HTTP Response?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1700, 150]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, data: { brief_id: $('Store Brief ID').first().json?.brief_id, status: 'delivered', generated_at: new Date().toISOString() } }) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1900, 50]
+    },
+    {
+      "parameters": {},
+      "id": "no-op-calendar",
+      "name": "No Op (Calendar)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1900, 250]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_ALERTS_CHANNEL || '#gtm-alerts' }}",
+        "text": "={{ '⚠️ *Meeting Prep Brief Failed*\\n\\n*Meeting:* ' + ($('Merge Triggers').first().json?.meeting?.title || 'Unknown') + '\\n*Error:* ' + ($json.error?.message || 'Unknown error') + '\\n*Timestamp:* ' + new Date().toISOString() }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": true
+        }
+      },
+      "id": "slack-error-alert",
+      "name": "Slack Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1300, 400],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-webhook-source-error",
+              "leftValue": "={{ $('Merge Triggers').first().json?.source }}",
+              "rightValue": "http_webhook",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-needs-error-response",
+      "name": "Needs Error Response?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1500, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'BRIEF_GENERATION_FAILED', message: $('Call Meeting Prep Agent').first().json?.error?.message || 'Failed to generate brief' } }) }}",
+        "options": {
+          "responseCode": 500,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1700, 350]
+    },
+    {
+      "parameters": {},
+      "id": "no-op-error-calendar",
+      "name": "No Op (Error Calendar)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1700, 500]
+    }
+  ],
+  "connections": {
+    "HTTP Webhook": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Parse Webhook Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Failed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar Poll (Every 5 min)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Upcoming Meetings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Upcoming Meetings": {
+      "main": [
+        [
+          {
+            "node": "Filter External Meetings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter External Meetings": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Parse Webhook Request": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Triggers": {
+      "main": [
+        [
+          {
+            "node": "Call Meeting Prep Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Meeting Prep Agent": {
+      "main": [
+        [
+          {
+            "node": "Agent Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent Success?": {
+      "main": [
+        [
+          {
+            "node": "Slack Brief Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Brief Delivery": {
+      "main": [
+        [
+          {
+            "node": "Store Brief ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Brief ID": {
+      "main": [
+        [
+          {
+            "node": "Needs HTTP Response?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs HTTP Response?": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Op (Calendar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Needs Error Response?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Error Response?": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Op (Error Calendar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "atlas-gtm-meeting-prep-brief"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "meeting-prep"
+    },
+    {
+      "name": "calendar"
+    },
+    {
+      "name": "atlas-gtm"
+    }
+  ],
+  "pinData": {},
+  "notes": [
+    {
+      "id": "note-1",
+      "content": "## Meeting Prep - Brief Generation\n\n### Purpose\nGenerate pre-call briefs 30 minutes before scheduled meetings with external attendees.\n\n### Triggers\n1. **Calendar Poll**: Checks every 5 minutes for meetings starting in 25-35 minutes\n2. **HTTP Webhook**: Direct API call for manual brief requests\n\n### Environment Variables Required:\n- `WEBHOOK_SECRET`: Secret for authenticating webhook requests\n- `AGENT_BASE_URL`: URL of the agent service (default: http://localhost:3001)\n- `SLACK_BRIEFS_CHANNEL`: Slack channel for briefs (default: #sales-briefs)\n- `SLACK_ALERTS_CHANNEL`: Slack channel for errors (default: #gtm-alerts)\n- `INTERNAL_DOMAINS`: Comma-separated internal email domains (default: codesdevs.com,atlasgtm.com)\n- `GOOGLE_CALENDAR_API_URL`: Google Calendar API base URL\n\n### Workflow Flow:\n1. **Triggers**: Calendar poll (5 min interval) or HTTP webhook\n2. **Calendar Path**: Fetch events → Filter external meetings (25-35 min window)\n3. **Webhook Path**: Auth check → Parse request\n4. **Merge**: Combine both trigger paths\n5. **Call Meeting Prep Agent**: POST with 120s timeout, 3 retries\n6. **Slack Brief Delivery**: Send Block Kit formatted brief\n7. **Response**: Return brief_id if HTTP trigger, otherwise silent\n\n### HTTP Request Format:\n```json\n{\n  \"meeting\": {\n    \"title\": \"Discovery Call - Acme Corp\",\n    \"start_time\": \"2024-01-15T14:00:00Z\",\n    \"attendees\": [\n      { \"email\": \"john@acme.com\", \"name\": \"John Doe\" }\n    ],\n    \"calendar_event_id\": \"cal_event_123\"\n  },\n  \"brain_id\": \"default\",\n  \"delivery\": {\n    \"slack_channel\": \"#sales-briefs\",\n    \"slack_user_id\": \"U123456\"\n  }\n}\n```\n\n### Test with curl:\n```bash\ncurl -X POST http://localhost:5678/webhook/meeting-prep-brief \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $WEBHOOK_SECRET\" \\\n  -d '{\"meeting\":{\"title\":\"Test Call\",\"attendees\":[{\"email\":\"john@acme.com\",\"name\":\"John Doe\"}]}}'\n```",
+      "position": [100, 550]
+    }
+  ]
+}

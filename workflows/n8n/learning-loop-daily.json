@@ -1,0 +1,692 @@
+{
+  "name": "Learning Loop - Daily Extraction",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Daily 6 AM UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "learning-loop-daily",
+        "authentication": "headerAuth",
+        "options": {
+          "rawBody": false
+        },
+        "responseMode": "responseNode"
+      },
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 500],
+      "webhookId": "learning-loop-daily"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-secret",
+              "leftValue": "={{ $json.headers?.['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [300, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'AUTH_FAILED', message: 'Invalid webhook secret' } }) }}",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "auth-failed-response",
+      "name": "Auth Failed Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [500, 650]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get yesterday's date range for daily extraction\nconst yesterday = new Date();\nyesterday.setDate(yesterday.getDate() - 1);\n\nconst startOfDay = new Date(yesterday);\nstartOfDay.setUTCHours(0, 0, 0, 0);\n\nconst endOfDay = new Date(yesterday);\nendOfDay.setUTCHours(23, 59, 59, 999);\n\nreturn [{\n  json: {\n    source: 'cron',\n    date_range: {\n      start: startOfDay.toISOString(),\n      end: endOfDay.toISOString()\n    },\n    sources: ['email_replies', 'call_transcripts'],\n    brain_id: $env.DEFAULT_BRAIN_ID || 'default',\n    config: {\n      min_confidence: 0.7,\n      max_insights_per_run: 50\n    }\n  }\n}];"
+      },
+      "id": "build-cron-request",
+      "name": "Build Cron Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse manual webhook request\nconst body = $input.first().json.body || {};\n\n// Allow custom date range or default to yesterday\nlet dateRange;\nif (body.date_range) {\n  dateRange = body.date_range;\n} else {\n  const yesterday = new Date();\n  yesterday.setDate(yesterday.getDate() - 1);\n  const startOfDay = new Date(yesterday);\n  startOfDay.setUTCHours(0, 0, 0, 0);\n  const endOfDay = new Date(yesterday);\n  endOfDay.setUTCHours(23, 59, 59, 999);\n  dateRange = {\n    start: startOfDay.toISOString(),\n    end: endOfDay.toISOString()\n  };\n}\n\nreturn [{\n  json: {\n    source: 'manual',\n    date_range: dateRange,\n    sources: body.sources || ['email_replies', 'call_transcripts'],\n    brain_id: body.brain_id || $env.DEFAULT_BRAIN_ID || 'default',\n    config: {\n      min_confidence: body.config?.min_confidence || 0.7,\n      max_insights_per_run: body.config?.max_insights_per_run || 50\n    }\n  }\n}];"
+      },
+      "id": "parse-manual-request",
+      "name": "Parse Manual Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 400]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "merge-triggers",
+      "name": "Merge Triggers",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [700, 350]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/learning-loop/extract-daily",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 300000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "call-extraction-agent",
+      "name": "Call Extraction Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 350],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-agent-success",
+      "name": "Agent Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 350]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-insights",
+              "leftValue": "={{ ($json.data?.insights_for_validation || []).length }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-has-insights",
+      "name": "Has Insights?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1300, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform insights for Slack validation queue\nconst insights = $input.first().json.data?.insights_for_validation || [];\n\nreturn insights.map(insight => ({\n  json: {\n    insight_id: insight.id,\n    category: insight.category,\n    confidence: insight.confidence,\n    source_count: insight.source_count,\n    content: insight.content,\n    examples: insight.examples || []\n  }\n}));"
+      },
+      "id": "transform-for-validation",
+      "name": "Transform for Validation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 150]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_REVIEW_CHANNEL || '#lead-reviews' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"📊 *New Insight for Review*\\n\\n*Category:* \" + $json.category + \"\\n*Confidence:* \" + (Math.round($json.confidence * 100) / 100) + \"\\n*Source:* \" + $json.source_count + \" data points\\n\\n*Insight:*\\n> \" + $json.content.substring(0, 400) + (($json.examples || []).length > 0 ? \"\\n\\n*Examples:*\\n\" + $json.examples.slice(0, 2).map(e => \"• \" + e.substring(0, 100)).join(\"\\n\") : \"\") } },\n  { \"type\": \"divider\" },\n  { \"type\": \"actions\", \"elements\": [\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✅ Approve\", \"emoji\": true }, \"style\": \"primary\", \"action_id\": \"approve\", \"value\": JSON.stringify({ insight_id: $json.insight_id, action: \"approve\" }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"❌ Reject\", \"emoji\": true }, \"style\": \"danger\", \"action_id\": \"reject\", \"value\": JSON.stringify({ insight_id: $json.insight_id, action: \"reject\" }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✏️ Edit\", \"emoji\": true }, \"action_id\": \"edit\", \"value\": JSON.stringify({ insight_id: $json.insight_id, action: \"edit\" }) }\n  ]}\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-validation-queue",
+      "name": "Slack Validation Queue",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1700, 150],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate results from extraction\nconst mergeData = $('Merge Triggers').first().json;\nconst agentResult = $('Call Extraction Agent').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      date_range: mergeData.date_range,\n      total_extracted: agentResult.data?.total_extracted || 0,\n      passed_quality_gates: agentResult.data?.passed_quality_gates || 0,\n      sent_to_validation: agentResult.data?.insights_for_validation?.length || 0,\n      auto_approved: agentResult.data?.auto_approved || 0,\n      processing_time_ms: agentResult.data?.processing_time_ms,\n      processed_at: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1900, 250]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_ALERTS_CHANNEL || '#gtm-alerts' }}",
+        "text": "={{ '📊 *Daily Learning Loop Complete*\\n\\n*Date:* ' + $json.data.date_range.start.split('T')[0] + '\\n*Total Extracted:* ' + $json.data.total_extracted + '\\n*Passed Quality Gates:* ' + $json.data.passed_quality_gates + '\\n*Sent to Validation:* ' + $json.data.sent_to_validation + '\\n*Auto-approved:* ' + $json.data.auto_approved + (($json.data.processing_time_ms) ? '\\n*Processing Time:* ' + Math.round($json.data.processing_time_ms / 1000) + 's' : '') }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-summary",
+      "name": "Slack Daily Summary",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2100, 250],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-manual-source",
+              "leftValue": "={{ $('Merge Triggers').first().json?.source }}",
+              "rightValue": "manual",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-needs-response",
+      "name": "Needs HTTP Response?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2300, 250]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Aggregate Results').first().json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2500, 150]
+    },
+    {
+      "parameters": {},
+      "id": "no-op-cron",
+      "name": "No Op (Cron)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2500, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// No insights found - log and continue\nconst mergeData = $('Merge Triggers').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      date_range: mergeData.date_range,\n      total_extracted: 0,\n      passed_quality_gates: 0,\n      sent_to_validation: 0,\n      message: 'No insights extracted for this period',\n      processed_at: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "no-insights-result",
+      "name": "No Insights Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 350]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_ALERTS_CHANNEL || '#gtm-alerts' }}",
+        "text": "={{ '⚠️ *Learning Loop Extraction Failed*\\n\\n*Date Range:* ' + ($('Merge Triggers').first().json?.date_range?.start || 'Unknown') + '\\n*Error:* ' + ($json.error?.message || 'Unknown error') + '\\n*Timestamp:* ' + new Date().toISOString() }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": true
+        }
+      },
+      "id": "slack-error-alert",
+      "name": "Slack Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1300, 500],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-manual-error",
+              "leftValue": "={{ $('Merge Triggers').first().json?.source }}",
+              "rightValue": "manual",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-needs-error-response",
+      "name": "Needs Error Response?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1500, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'EXTRACTION_FAILED', message: $('Call Extraction Agent').first().json?.error?.message || 'Extraction failed' } }) }}",
+        "options": {
+          "responseCode": 500,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1700, 450]
+    },
+    {
+      "parameters": {},
+      "id": "no-op-error-cron",
+      "name": "No Op (Error Cron)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1700, 600]
+    }
+  ],
+  "connections": {
+    "Daily 6 AM UTC": {
+      "main": [
+        [
+          {
+            "node": "Build Cron Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Parse Manual Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Failed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Cron Request": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Manual Request": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Triggers": {
+      "main": [
+        [
+          {
+            "node": "Call Extraction Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Extraction Agent": {
+      "main": [
+        [
+          {
+            "node": "Agent Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent Success?": {
+      "main": [
+        [
+          {
+            "node": "Has Insights?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Insights?": {
+      "main": [
+        [
+          {
+            "node": "Transform for Validation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Insights Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform for Validation": {
+      "main": [
+        [
+          {
+            "node": "Slack Validation Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Validation Queue": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Insights Result": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Slack Daily Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Daily Summary": {
+      "main": [
+        [
+          {
+            "node": "Needs HTTP Response?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs HTTP Response?": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Op (Cron)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Needs Error Response?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Error Response?": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Op (Error Cron)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "UTC"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "atlas-gtm-learning-loop-daily"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "learning-loop"
+    },
+    {
+      "name": "daily"
+    },
+    {
+      "name": "cron"
+    },
+    {
+      "name": "atlas-gtm"
+    }
+  ],
+  "pinData": {},
+  "notes": [
+    {
+      "id": "note-1",
+      "content": "## Learning Loop - Daily Extraction\n\n### Purpose\nRun daily insight extraction from accumulated email replies and call transcripts.\n\n### Triggers\n1. **Cron**: Daily at 6:00 AM UTC\n2. **Manual Webhook**: HTTP POST for ad-hoc extraction\n\n### Environment Variables Required:\n- `WEBHOOK_SECRET`: Secret for authenticating webhook requests\n- `AGENT_BASE_URL`: URL of the agent service (default: http://localhost:3001)\n- `SLACK_REVIEW_CHANNEL`: Channel for insight validation (default: #lead-reviews)\n- `SLACK_ALERTS_CHANNEL`: Channel for errors/summaries (default: #gtm-alerts)\n- `DEFAULT_BRAIN_ID`: Default brain for extraction\n\n### Workflow Flow:\n1. **Triggers**: Cron (6 AM UTC) or Manual webhook\n2. **Build Request**: Calculate yesterday's date range\n3. **Call Extraction Agent**: 300s timeout (5 min), 3 retries\n4. **Quality Gates**: Applied by agent\n   - Confidence ≥0.7\n   - Duplicate detection\n   - Importance scoring\n5. **Validation Queue**: Send insights to Slack for human review\n6. **Daily Summary**: Post extraction stats to alerts channel\n\n### Manual Request Format:\n```json\n{\n  \"date_range\": {\n    \"start\": \"2024-01-14T00:00:00Z\",\n    \"end\": \"2024-01-14T23:59:59Z\"\n  },\n  \"sources\": [\"email_replies\", \"call_transcripts\"],\n  \"brain_id\": \"default\",\n  \"config\": {\n    \"min_confidence\": 0.7,\n    \"max_insights_per_run\": 50\n  }\n}\n```\n\n### Test with curl:\n```bash\ncurl -X POST http://localhost:5678/webhook/learning-loop-daily \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $WEBHOOK_SECRET\" \\\n  -d '{}'\n```\n\n### Slack Validation Message:\n```\n📊 *New Insight for Review*\n\n*Category:* Objection Pattern\n*Confidence:* 0.85\n*Source:* 3 data points\n\n*Insight:*\n> \"Budget concerns\" often signals timing issue...\n\n[✅ Approve] [❌ Reject] [✏️ Edit]\n```",
+      "position": [100, 700]
+    }
+  ]
+}
