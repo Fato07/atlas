@@ -1,8 +1,8 @@
 # Atlas GTM Data Flow Architecture
 
-> **Last Updated**: 2026-01-20
-> **Version**: 1.2
-> **Status**: Active - Learning Loop Agent complete
+> **Last Updated**: 2026-01-21
+> **Version**: 1.3
+> **Status**: Active - Instantly MCP Server upgraded (38 tools)
 
 ---
 
@@ -44,7 +44,7 @@
 | Brain Lifecycle | ✅ | `003-brain-lifecycle` | Create, seed, activate brains |
 | Attio MCP | ✅ | `007-attio-mcp-server` | CRM operations, pipeline management |
 | MCP REST API | ✅ | `008-meeting-prep-agent` | HTTP wrapper for MCP tools (:8100) |
-| Instantly MCP | 📋 | - | Email campaign integration |
+| Instantly MCP | ✅ | `011-instantly-mcp-upgrade` | 38 tools: campaigns, leads, emails, accounts, analytics, jobs |
 | LinkedIn MCP | 📋 | - | LinkedIn automation |
 
 ### Infrastructure
@@ -238,7 +238,7 @@ flowchart TB
         subgraph Tools["MCP Tools"]
             QDRANT_T["Qdrant Tools<br/>• query_kb<br/>• get_brain<br/>• add_insight"]
             ATTIO_T["Attio Tools<br/>• find_person<br/>• update_person<br/>• create_task"]
-            INST_T["Instantly Tools<br/>• get_threads<br/>• send_reply"]
+            INST_T["Instantly Tools<br/>• 38 tools (v2 API)<br/>• campaigns, leads<br/>• emails, accounts"]
         end
     end
 
@@ -1331,6 +1331,7 @@ flowchart LR
 
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
+| 2026-01-21 | 1.3 | Updated Instantly MCP status to ✅ complete (38 tools via v2 API: campaigns, leads, emails, accounts, analytics, jobs) | Atlas GTM Team |
 | 2026-01-20 | 1.2 | Added Learning Loop Agent flow (insight extraction, quality gates, validation workflow, weekly synthesis), updated overview diagrams, glossary terms | Atlas GTM Team |
 | 2026-01-20 | 1.1 | Added Meeting Prep Agent flow, Agent Communication Overview, updated status tables, MCP REST API layer | Atlas GTM Team |
 | 2026-01-20 | 1.0 | Initial data flow documentation with status markers | Atlas GTM Team |
