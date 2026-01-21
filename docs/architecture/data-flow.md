@@ -1,7 +1,7 @@
 # Atlas GTM Data Flow Architecture
 
 > **Last Updated**: 2026-01-21
-> **Version**: 1.4
+> **Version**: 1.5
 > **Status**: Active - HeyReach MCP Server added (35 tools)
 
 ---
@@ -54,6 +54,19 @@
 | Qdrant + Docker | ✅ | `001-gtm-infra` | Vector DB, 7 collections |
 | n8n Workflows | ✅ | `001-gtm-infra` | Batch triggers, webhooks |
 | State Management | ✅ | `004-lead-scorer` | JSON checkpoint files |
+
+### n8n Workflow Files
+
+| Workflow File | Agent | Trigger | Purpose |
+|---------------|-------|---------|---------|
+| `learning-loop-daily.json` | Learning Loop | Daily schedule | Extract insights from day's replies/transcripts |
+| `learning-loop-weekly.json` | Learning Loop | Weekly schedule | Generate weekly synthesis report |
+| `meeting-prep-brief.json` | Meeting Prep | Calendar webhook | Generate pre-call briefs (30 min before) |
+| `meeting-prep-analysis.json` | Meeting Prep | Fireflies webhook | Post-meeting transcript analysis |
+| `reply-handler-instantly.json` | Reply Handler | Instantly webhook | Process email reply notifications |
+| `reply-handler-linkedin.json` | Reply Handler | HeyReach webhook | Process LinkedIn message notifications |
+
+> **Location**: `workflows/n8n/`
 
 ---
 
@@ -1341,6 +1354,7 @@ flowchart LR
 
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
+| 2026-01-21 | 1.5 | Added n8n workflow files reference table (6 workflows for learning loop, meeting prep, reply handler) | Atlas GTM Team |
 | 2026-01-21 | 1.4 | Added HeyReach MCP status ✅ (35 tools: campaigns, inbox, accounts, lists, leads, stats, webhooks) | Atlas GTM Team |
 | 2026-01-21 | 1.3 | Updated Instantly MCP status to ✅ complete (38 tools via v2 API: campaigns, leads, emails, accounts, analytics, jobs) | Atlas GTM Team |
 | 2026-01-20 | 1.2 | Added Learning Loop Agent flow (insight extraction, quality gates, validation workflow, weekly synthesis), updated overview diagrams, glossary terms | Atlas GTM Team |

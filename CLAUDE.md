@@ -253,6 +253,30 @@ Test MCP servers: `bun run mcp:test`
 bun run seed:brain --vertical=fintech --source=./data/fintech-kb.json
 ```
 
+### Create/Modify n8n Workflow
+
+**ALWAYS use n8n-mcp-skills** to validate workflows:
+
+1. Invoke the `n8n-validation-expert` skill before creating/modifying workflows
+2. Run validation on the workflow JSON after changes
+3. Fix any issues identified before committing
+
+**Common issues caught by validation**:
+- `process.env.VARIABLE` → Use `$env.VARIABLE` instead (n8n syntax)
+- Legacy Slack `attachments` → Use Block Kit (`messageType: "block"` + `blocksUi`)
+- Missing required node parameters
+- Invalid expression syntax
+
+**Block Kit pattern for Slack nodes**:
+```json
+{
+  "messageType": "block",
+  "blocksUi": "={{ JSON.stringify([...]) }}"
+}
+```
+
+Workflow files location: `workflows/n8n/`
+
 ## What NOT to Do
 
 - Don't use `npm` - use `bun`
