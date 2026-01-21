@@ -8,10 +8,54 @@ import { describe, test, expect, beforeEach } from 'bun:test';
 import { LeadScorerAgent, createLeadScorerAgent } from '../../lead-scorer/agent';
 import type { LeadInput } from '../../lead-scorer/contracts/lead-input';
 import type { ScoringResult } from '../../lead-scorer/contracts/scoring-result';
+import { VerticalRegistry } from '@atlas-gtm/lib';
+import type { VerticalDetectionIndex } from '@atlas-gtm/lib';
 
 // ===========================================
 // Test Helpers
 // ===========================================
+
+/**
+ * Create a mock VerticalDetectionIndex with test data for unit testing.
+ * This allows tests to run without Qdrant.
+ */
+function createMockDetectionIndex(): VerticalDetectionIndex {
+  return {
+    industryToVertical: new Map([
+      ['investor relations', 'iro'],
+      ['fintech', 'fintech'],
+      ['financial technology', 'fintech'],
+      ['saas', 'saas'],
+      ['healthcare', 'healthcare'],
+      ['defense', 'defense'],
+      ['aerospace', 'aerospace'],
+    ]),
+    titleToVertical: new Map([
+      ['investor relations', 'iro'],
+      ['ir director', 'iro'],
+      ['ir manager', 'iro'],
+    ]),
+    campaignToVertical: new Map([
+      ['iro_*', 'iro'],
+      ['fintech_*', 'fintech'],
+    ]),
+    aliasToVertical: new Map([
+      ['ir', 'iro'],
+      ['fin', 'fintech'],
+    ]),
+    exclusions: new Map(),
+    builtAt: new Date(),
+  };
+}
+
+/**
+ * Create a VerticalRegistry with test data injected (no Qdrant required).
+ */
+function createTestRegistry(): VerticalRegistry {
+  const registry = new VerticalRegistry();
+  registry.setDetectionIndexForTesting(createMockDetectionIndex());
+  return registry;
+}
 
 function createTestLead(overrides: Partial<LeadInput> = {}): LeadInput {
   return {
@@ -31,7 +75,10 @@ describe('LeadScorerAgent.scoreLead', () => {
   let agent: LeadScorerAgent;
 
   beforeEach(() => {
-    agent = createLeadScorerAgent();
+    // Create agent with test registry (mock vertical detection data)
+    agent = createLeadScorerAgent({
+      verticalRegistry: createTestRegistry(),
+    });
   });
 
   test('scores a basic lead successfully', async () => {
@@ -154,7 +201,9 @@ describe('Tier assignment scenarios', () => {
   let agent: LeadScorerAgent;
 
   beforeEach(() => {
-    agent = createLeadScorerAgent();
+    agent = createLeadScorerAgent({
+      verticalRegistry: createTestRegistry(),
+    });
   });
 
   test('high-scoring lead gets priority tier', async () => {
@@ -204,7 +253,9 @@ describe('Edge cases', () => {
   let agent: LeadScorerAgent;
 
   beforeEach(() => {
-    agent = createLeadScorerAgent();
+    agent = createLeadScorerAgent({
+      verticalRegistry: createTestRegistry(),
+    });
   });
 
   test('handles lead with all fields populated', async () => {
@@ -291,7 +342,9 @@ describe('LeadScorerAgent.scoreBatch', () => {
   let agent: LeadScorerAgent;
 
   beforeEach(() => {
-    agent = createLeadScorerAgent();
+    agent = createLeadScorerAgent({
+      verticalRegistry: createTestRegistry(),
+    });
   });
 
   test('scores multiple leads', async () => {
@@ -343,7 +396,9 @@ describe('Performance', () => {
   let agent: LeadScorerAgent;
 
   beforeEach(() => {
-    agent = createLeadScorerAgent();
+    agent = createLeadScorerAgent({
+      verticalRegistry: createTestRegistry(),
+    });
   });
 
   test('single lead scoring completes within target time', async () => {
@@ -388,7 +443,9 @@ describe('Enrichment check', () => {
   let agent: LeadScorerAgent;
 
   beforeEach(() => {
-    agent = createLeadScorerAgent();
+    agent = createLeadScorerAgent({
+      verticalRegistry: createTestRegistry(),
+    });
   });
 
   test('identifies leads needing enrichment', () => {
@@ -440,7 +497,9 @@ describe('Duplicate lead handling (FR-014)', () => {
   let agent: LeadScorerAgent;
 
   beforeEach(() => {
-    agent = createLeadScorerAgent();
+    agent = createLeadScorerAgent({
+      verticalRegistry: createTestRegistry(),
+    });
   });
 
   test('new lead is not a duplicate', async () => {

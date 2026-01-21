@@ -9,6 +9,7 @@ from .qdrant import register_qdrant_tools
 from .attio import register_attio_tools
 from .instantly import register_instantly_tools
 from .slack import register_slack_tools
+from .verticals import register_vertical_tools
 
 load_dotenv()
 
@@ -25,6 +26,7 @@ def create_server() -> FastMCP:
     register_attio_tools(mcp)
     register_instantly_tools(mcp)
     register_slack_tools(mcp)
+    register_vertical_tools(mcp)
 
     return mcp
 

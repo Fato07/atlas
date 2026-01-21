@@ -18,10 +18,55 @@ import {
 } from '../../lead-scorer/contracts/scoring-result';
 import { LeadScorerAgent, createLeadScorerAgent } from '../../lead-scorer/agent';
 import type { LeadInput } from '../../lead-scorer/contracts/lead-input';
+import { VerticalRegistry } from '@atlas-gtm/lib';
+import type { VerticalDetectionIndex } from '@atlas-gtm/lib';
 
 // ===========================================
 // Test Helpers
 // ===========================================
+
+/**
+ * Create a mock VerticalDetectionIndex with test data for unit testing.
+ * This allows tests to run without Qdrant.
+ */
+function createMockDetectionIndex(): VerticalDetectionIndex {
+  return {
+    industryToVertical: new Map([
+      ['investor relations', 'iro'],
+      ['fintech', 'fintech'],
+      ['financial technology', 'fintech'],
+      ['saas', 'saas'],
+      ['healthcare', 'healthcare'],
+      ['defense', 'defense'],
+      ['aerospace', 'aerospace'],
+      ['gambling', 'gambling'], // For knockout tests
+    ]),
+    titleToVertical: new Map([
+      ['investor relations', 'iro'],
+      ['ir director', 'iro'],
+      ['ir manager', 'iro'],
+    ]),
+    campaignToVertical: new Map([
+      ['iro_*', 'iro'],
+      ['fintech_*', 'fintech'],
+    ]),
+    aliasToVertical: new Map([
+      ['ir', 'iro'],
+      ['fin', 'fintech'],
+    ]),
+    exclusions: new Map(),
+    builtAt: new Date(),
+  };
+}
+
+/**
+ * Create a VerticalRegistry with test data injected (no Qdrant required).
+ */
+function createTestRegistry(): VerticalRegistry {
+  const registry = new VerticalRegistry();
+  registry.setDetectionIndexForTesting(createMockDetectionIndex());
+  return registry;
+}
 
 function createTestLead(overrides: Partial<LeadInput> = {}): LeadInput {
   return {
@@ -422,7 +467,10 @@ describe('Agent audit trail integration', () => {
   let agent: LeadScorerAgent;
 
   beforeEach(() => {
-    agent = createLeadScorerAgent();
+    // Create agent with test registry (mock vertical detection data)
+    agent = createLeadScorerAgent({
+      verticalRegistry: createTestRegistry(),
+    });
   });
 
   test('scoring result includes complete RuleResult breakdown', async () => {

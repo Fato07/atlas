@@ -317,6 +317,8 @@ Workflow files location: `workflows/n8n/`
 - N/A (External: Instantly.ai v2 API at `api.instantly.ai/api/v2`) (011-instantly-mcp-upgrade)
 - Python 3.11+ + FastMCP ≥0.4.0, httpx ≥0.27.0, tenacity ≥8.2.0, pydantic ≥2.7.0, structlog ≥24.1.0 (012-heyreach-mcp-server)
 - N/A (stateless MCP server - data stored in HeyReach SaaS) (012-heyreach-mcp-server)
+- TypeScript 5.4+ (Bun runtime) for agents/lib, Python 3.11+ for MCP servers + @anthropic-ai/sdk, @qdrant/js-client-rest, FastMCP ≥0.4.0, Zod, structlog (014-multi-vertical-brain-swap)
+- Qdrant (verticals collection), Upstash Redis (classification cache) (014-multi-vertical-brain-swap)
 
 ## Recent Changes
 - 011-instantly-mcp-upgrade + 012-heyreach-mcp-server: Production-ready MCP servers for email outreach (Instantly v2 API) and LinkedIn automation (HeyReach API). Instantly upgraded from 7 to 38 tools with v2 API, retry logic (tenacity), and structured logging. HeyReach new implementation with 35 tools for campaigns, inbox, accounts, lists, leads, stats, and webhooks. Both have comprehensive test suites (164 tests total).

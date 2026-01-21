@@ -7,7 +7,7 @@
  * @module lead-scorer/types
  */
 
-import type { BrainId, ScoringTier, MessagingAngle } from '@atlas-gtm/lib';
+import type { BrainId, ScoringTier, MessagingAngle, VerticalRegistry } from '@atlas-gtm/lib';
 
 // ===========================================
 // Agent State Types
@@ -76,6 +76,9 @@ export interface LeadScorerConfig {
 
   /** Use heuristics only for angle inference (default: true, faster but less accurate) */
   useHeuristicsForAngle?: boolean;
+
+  /** Vertical registry for data-driven vertical detection (optional, creates default if not set) */
+  verticalRegistry?: VerticalRegistry;
 }
 
 /**
@@ -161,23 +164,45 @@ export interface RetryConfig {
 // Vertical Detection Types
 // ===========================================
 
+/** Detection method used */
+export type VerticalDetectionMethod =
+  | 'explicit'      // Explicit vertical field provided
+  | 'industry'      // Industry keyword match
+  | 'title'         // Title keyword match
+  | 'campaign'      // Campaign pattern match
+  | 'ai'            // AI classification fallback
+  | 'default';      // Default fallback
+
 /**
  * Vertical detection result
  */
 export interface VerticalDetectionResult {
+  /** Detected vertical slug */
   vertical: string;
-  confidence: number; // 0-1
+  /** Detection confidence (0-1) */
+  confidence: number;
+  /** All signals considered during detection */
   signals: VerticalSignal[];
+  /** Detection method used (optional for backwards compatibility) */
+  method?: VerticalDetectionMethod;
+  /** Reasoning for the detection (from AI if applicable) */
+  reasoning?: string;
 }
 
 /**
  * Signal used for vertical detection
  */
 export interface VerticalSignal {
+  /** Attribute that matched (e.g., "industry", "title") */
   attribute: string;
+  /** Value from lead data */
   value: string;
+  /** Matched vertical slug */
   matched_vertical: string;
+  /** Signal weight/confidence */
   weight: number;
+  /** Matched keyword or pattern (optional) */
+  matched_keyword?: string;
 }
 
 // ===========================================

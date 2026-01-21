@@ -13,6 +13,7 @@
  */
 
 import type { BrainId, Brain, ICPRule, LeadId, ScoringTier, MessagingAngle } from '@atlas-gtm/lib';
+import { VerticalRegistry } from '@atlas-gtm/lib';
 import {
   initLangfuse,
   getLangfuse,
@@ -36,7 +37,7 @@ import type {
 } from './types';
 import { DEFAULT_LEAD_SCORER_CONFIG } from './types';
 import { needsEnrichment, countMissingFields } from './contracts/lead-input';
-import { detectVertical, getDetectionMethod } from './vertical-detector';
+import { detectVerticalFromLead, getDetectionMethod } from './vertical-detector';
 import { evaluateAllRules, resolveRuleConflicts } from './rules';
 import { calculateScore, assignTier, loadThresholds } from './scoring';
 import { logger, LeadScorerLogger } from './logger';
@@ -66,10 +67,13 @@ export class LeadScorerAgent {
   private logger: LeadScorerLogger;
   private brainCache: Map<string, Brain> = new Map();
   private rulesCache: Map<string, ICPRule[]> = new Map();
+  private verticalRegistry: VerticalRegistry;
 
   constructor(config: Partial<LeadScorerConfig> = {}) {
     this.config = { ...DEFAULT_LEAD_SCORER_CONFIG, ...config };
     this.logger = logger;
+    // Use provided registry or create a default one
+    this.verticalRegistry = config.verticalRegistry ?? new VerticalRegistry();
   }
 
   /**
@@ -256,8 +260,8 @@ export class LeadScorerAgent {
     let traceId: string | undefined;
 
     try {
-      // 1. Detect vertical
-      const verticalResult = detectVertical(lead);
+      // 1. Detect vertical using data-driven registry
+      const verticalResult = await detectVerticalFromLead(lead, this.verticalRegistry);
       const vertical = verticalResult.vertical;
 
       this.logger.verticalDetected({

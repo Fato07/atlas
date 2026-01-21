@@ -206,7 +206,7 @@ export class LeadScorerLogger {
     lead_id: string;
     vertical: string;
     confidence: number;
-    method: 'explicit' | 'industry' | 'title' | 'default';
+    method: 'explicit' | 'industry' | 'title' | 'campaign' | 'ai' | 'default';
     signals?: string[];
   }): void {
     this.log('debug', 'vertical_detected', data);

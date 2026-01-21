@@ -1,0 +1,331 @@
+{
+  "description": "Aerospace & Defense vertical brain seed data for Atlas GTM",
+  "version": "1.0.0",
+  "created_at": "2026-01-21",
+  "brain": {
+    "vertical": "defense",
+    "name": "Aerospace & Defense Brain",
+    "description": "Knowledge base for defense & aerospace technology targeting government contractors, defense tech startups, and aerospace manufacturers",
+    "config": {
+      "model": "claude-sonnet-4-20250514",
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "context_window": 80000
+    },
+    "icp_rules": [
+      {
+        "name": "Government Contractor Status",
+        "criteria": "Company is a registered government contractor with active federal contracts or pursuing federal opportunities",
+        "weight": 5,
+        "match_condition": "has_government_contracts = true OR pursuing_federal_contracts = true",
+        "category": "firmographic",
+        "tier_impact": "Tier 1 if active contracts, Tier 2 if pursuing"
+      },
+      {
+        "name": "Security Clearance Capability",
+        "criteria": "Company has facility clearance (FCL) or employees with security clearances at Secret level or above",
+        "weight": 5,
+        "match_condition": "security_clearance_level IN ('secret', 'top_secret', 'sci', 'ts_sci')",
+        "category": "firmographic",
+        "tier_impact": "Critical for classified work opportunities"
+      },
+      {
+        "name": "Defense Industry Vertical",
+        "criteria": "Company operates in defense-adjacent industry (aerospace, defense, cybersecurity, intelligence, space)",
+        "weight": 4,
+        "match_condition": "industry IN ('defense', 'aerospace', 'cybersecurity', 'intelligence', 'space', 'unmanned_systems')",
+        "category": "firmographic",
+        "tier_impact": "Tier 1-2 based on other factors"
+      },
+      {
+        "name": "CMMC Compliance Status",
+        "criteria": "Company is pursuing or has achieved CMMC certification (Level 2+)",
+        "weight": 4,
+        "match_condition": "cmmc_level >= 2 OR cmmc_pursuing = true",
+        "category": "compliance",
+        "tier_impact": "Active compliance work indicates serious DIB participation"
+      },
+      {
+        "name": "Decision Maker Title",
+        "criteria": "Contact holds decision-making authority for contracts, programs, or technology adoption",
+        "weight": 4,
+        "match_condition": "title CONTAINS ('CEO', 'CTO', 'VP', 'Director', 'Program Manager', 'Contracting Officer', 'CISO')",
+        "category": "demographic",
+        "tier_impact": "Required for Tier 1 qualification"
+      },
+      {
+        "name": "Company Size - DIB Sweet Spot",
+        "criteria": "Company size is within target range for mid-market defense contractors (50-5000 employees)",
+        "weight": 3,
+        "match_condition": "employee_count BETWEEN 50 AND 5000",
+        "category": "firmographic",
+        "tier_impact": "Ideal size for solution adoption"
+      },
+      {
+        "name": "Revenue Scale",
+        "criteria": "Company has sufficient revenue to invest in solutions ($10M-$500M range)",
+        "weight": 3,
+        "match_condition": "annual_revenue BETWEEN 10000000 AND 500000000",
+        "category": "firmographic",
+        "tier_impact": "Indicates budget capacity"
+      },
+      {
+        "name": "Prime vs Subcontractor",
+        "criteria": "Company acts as prime contractor on federal contracts (vs. only subcontractor)",
+        "weight": 3,
+        "match_condition": "contract_role = 'prime' OR contract_role = 'both'",
+        "category": "firmographic",
+        "tier_impact": "Primes have more complex compliance needs"
+      },
+      {
+        "name": "Geographic Location",
+        "criteria": "Company located in defense hub (DC metro, San Diego, Huntsville, Colorado Springs, etc.)",
+        "weight": 2,
+        "match_condition": "location IN ('washington_dc', 'northern_virginia', 'san_diego', 'huntsville', 'colorado_springs', 'boston')",
+        "category": "geographic",
+        "tier_impact": "Hub locations indicate defense focus"
+      },
+      {
+        "name": "Recent Funding or Growth",
+        "criteria": "Company has raised funding recently or showing growth indicators",
+        "weight": 2,
+        "match_condition": "funding_round_last_18_months = true OR yoy_growth > 0.2",
+        "category": "firmographic",
+        "tier_impact": "Growing companies more likely to invest"
+      }
+    ],
+    "response_templates": [
+      {
+        "name": "Interested Follow-up",
+        "intent": "interested",
+        "template": "Hi {{first_name}},\n\nThank you for your interest in {{product_name}}. I'd love to learn more about {{company_name}}'s current challenges with {{pain_point}}.\n\nGiven your work in the defense space, I imagine compliance and security are top priorities. Would you have 20 minutes this week for a quick call? I can share some specific examples of how we've helped similar defense contractors.\n\nBest,\n{{sender_name}}",
+        "variables": ["first_name", "product_name", "company_name", "pain_point", "sender_name"],
+        "a_b_variant": "A",
+        "performance_metrics": {
+          "response_rate": 0.32,
+          "meeting_rate": 0.18,
+          "sample_size": 150
+        }
+      },
+      {
+        "name": "Interested Follow-up - Direct",
+        "intent": "interested",
+        "template": "Hi {{first_name}},\n\nGreat to hear from you. Let's find time to connect.\n\nI have availability {{availability_slots}}. What works best for you?\n\nIn the meantime, here's a quick case study from a similar defense contractor: {{case_study_link}}\n\nLooking forward to it,\n{{sender_name}}",
+        "variables": ["first_name", "availability_slots", "case_study_link", "sender_name"],
+        "a_b_variant": "B",
+        "performance_metrics": {
+          "response_rate": 0.38,
+          "meeting_rate": 0.22,
+          "sample_size": 150
+        }
+      },
+      {
+        "name": "Meeting Confirmation",
+        "intent": "meeting_request",
+        "template": "Hi {{first_name}},\n\nGreat! I've sent over a calendar invite for {{meeting_time}}. Looking forward to discussing how we can help {{company_name}}.\n\nTo make our time productive, I'll prepare some specific insights relevant to {{company_vertical}} contractors. Feel free to bring any questions about {{specific_topic}}.\n\nIn the meantime, here's a brief overview of our work with {{reference_customer}} - similar situation to yours.\n\nBest,\n{{sender_name}}",
+        "variables": ["first_name", "meeting_time", "company_name", "company_vertical", "specific_topic", "reference_customer", "sender_name"],
+        "a_b_variant": null,
+        "performance_metrics": {
+          "show_rate": 0.85,
+          "sample_size": 200
+        }
+      },
+      {
+        "name": "Question Response - Compliance",
+        "intent": "question",
+        "template": "Hi {{first_name}},\n\nGreat question about {{compliance_topic}}.\n\n{{compliance_answer}}\n\nThis is an area we've helped many defense contractors navigate. Given the CMMC deadlines and increasing scrutiny, it's a common concern.\n\nWould it be helpful to schedule a quick call to dive deeper? I can also connect you with our compliance team if that would be useful.\n\nBest,\n{{sender_name}}",
+        "variables": ["first_name", "compliance_topic", "compliance_answer", "sender_name"],
+        "a_b_variant": null,
+        "performance_metrics": {
+          "response_rate": 0.45,
+          "meeting_rate": 0.20,
+          "sample_size": 80
+        }
+      },
+      {
+        "name": "Question Response - Technical",
+        "intent": "question",
+        "template": "Hi {{first_name}},\n\nThanks for the technical question about {{technical_topic}}.\n\n{{technical_answer}}\n\nI'd be happy to have our technical team provide more details. We've implemented this for several contractors handling {{classification_level}} work.\n\nWould a brief technical deep-dive be valuable? I can arrange a call with one of our solutions architects.\n\nBest,\n{{sender_name}}",
+        "variables": ["first_name", "technical_topic", "technical_answer", "classification_level", "sender_name"],
+        "a_b_variant": null,
+        "performance_metrics": {
+          "response_rate": 0.42,
+          "meeting_rate": 0.18,
+          "sample_size": 60
+        }
+      },
+      {
+        "name": "Objection Handler - Generic",
+        "intent": "objection",
+        "template": "Hi {{first_name}},\n\nI completely understand your concern about {{objection_topic}}. Many of our current customers in the defense space had similar hesitations initially.\n\n{{objection_response}}\n\nWould you be open to a brief conversation? I can share specific examples of how we addressed this for {{reference_customer}}, who faced a very similar situation.\n\nBest,\n{{sender_name}}",
+        "variables": ["first_name", "objection_topic", "objection_response", "reference_customer", "sender_name"],
+        "a_b_variant": null,
+        "performance_metrics": {
+          "response_rate": 0.28,
+          "meeting_rate": 0.12,
+          "sample_size": 100
+        }
+      },
+      {
+        "name": "Not Interested - Soft Touch",
+        "intent": "not_interested",
+        "template": "Hi {{first_name}},\n\nI appreciate you letting me know. Timing is everything in this industry, and I completely understand.\n\nIf it's helpful, I'd be happy to share some non-sales resources on {{relevant_topic}} that might be valuable regardless - we've compiled some insights from working with 50+ defense contractors.\n\nNo pressure, but feel free to reach out if circumstances change. I'll keep an eye on {{company_name}}'s work and reach out if I see something specifically relevant.\n\nBest,\n{{sender_name}}",
+        "variables": ["first_name", "relevant_topic", "company_name", "sender_name"],
+        "a_b_variant": null,
+        "performance_metrics": {
+          "future_engagement_rate": 0.15,
+          "sample_size": 120
+        }
+      },
+      {
+        "name": "Referral Request",
+        "intent": "referral",
+        "template": "Hi {{first_name}},\n\nThank you for the introduction to {{referral_name}}. I really appreciate you thinking of us.\n\nI'll reach out to them with context about our conversation. Is there anything specific you think I should mention or avoid when connecting with them?\n\nAlso, if there's ever anything I can do to help {{company_name}} or return the favor, please don't hesitate to ask.\n\nBest,\n{{sender_name}}",
+        "variables": ["first_name", "referral_name", "company_name", "sender_name"],
+        "a_b_variant": null,
+        "performance_metrics": {
+          "referral_conversion_rate": 0.35,
+          "sample_size": 40
+        }
+      }
+    ],
+    "objection_handlers": [
+      {
+        "objection": "We already have a solution in place",
+        "response": "That's great that you have something in place. Many of our customers came to us with existing solutions but found they needed something more specialized for government/defense requirements. We often complement existing tools rather than replace them entirely - especially when it comes to compliance controls and audit trails. Would it be helpful to understand where we typically add value alongside existing solutions?",
+        "category": "competition",
+        "severity": "low",
+        "follow_up_timing": "immediate"
+      },
+      {
+        "objection": "We don't have the budget right now",
+        "response": "I completely understand budget constraints, especially with contract cycles and continuing resolutions. Many defense contractors actually find that our solution reduces overall costs by 30-40% through automation and compliance streamlining. We also offer flexible pricing aligned with contract award cycles and can structure deals around IDIQ task orders. Would it make sense to at least understand the potential ROI for a future budget cycle?",
+        "category": "budget",
+        "severity": "medium",
+        "follow_up_timing": "next_quarter"
+      },
+      {
+        "objection": "We need to focus on our current contracts",
+        "response": "Absolutely - execution on current contracts is priority one. That's actually where we help most. Our solution is designed to reduce the operational burden on existing programs while improving compliance posture for audits. Many customers tell us it actually freed up capacity they didn't know they had, which helped them win additional work. Would a 15-minute overview be worth your time to see if this could help with current program execution?",
+        "category": "timing",
+        "severity": "medium",
+        "follow_up_timing": "1_month"
+      },
+      {
+        "objection": "I need to check with our security/compliance team",
+        "response": "That's exactly the right approach for any new tool in the defense space - security review is non-negotiable. We're fully FedRAMP authorized (Moderate baseline), have ATOs with several major agencies, and maintain SOC 2 Type II certification. I can provide our complete security documentation package including penetration test results and even arrange a direct conversation between our security team and yours. Would that be helpful?",
+        "category": "security",
+        "severity": "low",
+        "follow_up_timing": "immediate"
+      },
+      {
+        "objection": "The decision isn't mine to make",
+        "response": "I appreciate you being upfront about that. In the defense space, buying decisions often involve multiple stakeholders - programs, contracts, security, and IT. Would it be helpful if I prepared some materials specifically for the decision maker? I can tailor them to address their likely concerns - whether that's ROI for the CFO, compliance for the FSO, or technical fit for the CTO. Also, would you be open to including them in a brief call?",
+        "category": "authority",
+        "severity": "low",
+        "follow_up_timing": "immediate"
+      },
+      {
+        "objection": "We're waiting on contract award",
+        "response": "Contract awards are always the critical dependency. Many of our customers actually start the evaluation process before award so they can move quickly once the contract is in place - especially for IDIQ vehicles where you need to be ready to respond to task orders. We can structure our engagement to align with your award timeline. When are you expecting the decision?",
+        "category": "timing",
+        "severity": "low",
+        "follow_up_timing": "pre_award"
+      },
+      {
+        "objection": "We've had bad experiences with vendors",
+        "response": "I hear that a lot in the defense space - the vendor landscape can be challenging. Without knowing specifics, I can tell you our approach is different: we focus exclusively on defense contractors, all our customer success team has cleared backgrounds, and we offer pilot programs so you can validate before committing. What specifically went wrong before? Understanding that would help me explain how we've addressed those issues.",
+        "category": "trust",
+        "severity": "high",
+        "follow_up_timing": "careful"
+      },
+      {
+        "objection": "Our prime requires us to use specific tools",
+        "response": "Prime flowdown requirements are real constraints. We work with many subs in that situation. A few things to consider: we often integrate with prime-mandated systems rather than replace them, some of our capabilities address compliance requirements that primes actually prefer, and we can help you document compliance for prime audits. Which prime are you working under? We may already have integration experience with their stack.",
+        "category": "technical",
+        "severity": "medium",
+        "follow_up_timing": "immediate"
+      },
+      {
+        "objection": "We're too small for this",
+        "response": "Company size is less important than the compliance requirements you face. We work with contractors ranging from 20 to 5,000 employees. For smaller teams, our solution is often even more valuable because you don't have dedicated compliance staff. We have a tier specifically designed for emerging contractors that scales with your contract volume. Would it help to see how we've helped other small businesses in the DIB?",
+        "category": "fit",
+        "severity": "low",
+        "follow_up_timing": "immediate"
+      },
+      {
+        "objection": "Our IT team will build something internally",
+        "response": "Build vs. buy is always a consideration. A few things to think about: maintaining compliance documentation and keeping up with CMMC/NIST updates is ongoing work that diverts your team from core mission. We've seen internal builds cost 3-5x more over 3 years when you factor in maintenance and opportunity cost. That said, if you do build internally, we'd love to stay in touch - many companies circle back to us after realizing the maintenance burden.",
+        "category": "competition",
+        "severity": "medium",
+        "follow_up_timing": "6_months"
+      }
+    ],
+    "market_research": [
+      {
+        "topic": "Defense Budget Trends FY2025-2026",
+        "content": "The FY2025 defense budget request is $895 billion, with significant increases in cybersecurity, space, and AI/ML programs. Key growth areas include: cyber operations (+18% YoY), space systems (+15% YoY), autonomous systems (+22% YoY), and AI/ML applications (+25% YoY). The DIB is seeing consolidation among mid-market contractors while VC-backed defense tech startups continue aggressive expansion.",
+        "source": "Congressional Budget Office / DoD Budget Justification",
+        "date": "2025-03-15",
+        "relevance_score": 0.95,
+        "tags": ["budget", "trends", "growth_areas"]
+      },
+      {
+        "topic": "CMMC 2.0 Implementation Status",
+        "content": "CMMC 2.0 is now in full effect with Level 2 certification required for all CUI-handling contractors. Approximately 85,000 companies in the DIB need certification. C3PAO assessment capacity remains constrained with average wait times of 4-6 months. Companies without CMMC certification are being excluded from new contract opportunities. Self-assessment option remains for Level 1 only.",
+        "source": "DoD CMMC Program Office / CyberAB",
+        "date": "2025-06-01",
+        "relevance_score": 0.98,
+        "tags": ["cmmc", "compliance", "certification", "urgency"]
+      },
+      {
+        "topic": "Defense Tech Startup Landscape 2025",
+        "content": "Defense tech VC funding reached $9.2B in 2024, up 35% from 2023. Key sectors: autonomous systems (28%), cybersecurity (22%), space tech (20%), AI/ML for defense (18%), and advanced manufacturing (12%). Notable trend: traditional Silicon Valley VCs and sovereign wealth funds significantly increasing defense tech allocations. Top funded companies include Shield AI, Anduril, Rebellion Defense, and Epirus.",
+        "source": "PitchBook Defense Tech Report",
+        "date": "2025-01-20",
+        "relevance_score": 0.85,
+        "tags": ["startups", "funding", "trends", "competition"]
+      },
+      {
+        "topic": "Government Contracting Pain Points 2025",
+        "content": "Top challenges reported by defense contractors: 1) CMMC compliance burden (78% cite as major challenge), 2) Talent acquisition with clearances (72%), 3) Cash flow management around contract cycles (58%), 4) Supply chain security requirements (55%), 5) Cybersecurity incident reporting requirements (52%), 6) SBIR/STTR commercialization gap (48%).",
+        "source": "NDIA Contractor Survey 2025",
+        "date": "2025-04-01",
+        "relevance_score": 0.92,
+        "tags": ["pain_points", "challenges", "selling_points"]
+      },
+      {
+        "topic": "DoD Acquisition Reform Initiatives",
+        "content": "DoD is accelerating acquisition timelines through multiple initiatives: Other Transaction Authority (OTA) usage up 40% YoY, Middle Tier Acquisition pathways expanding, and Commercial Solutions Opening (CSO) becoming standard for innovation adoption. Software acquisition pathway requires continuous ATO and DevSecOps practices. These changes favor agile companies but increase compliance complexity.",
+        "source": "DoD Acquisition Policy Updates",
+        "date": "2025-02-15",
+        "relevance_score": 0.88,
+        "tags": ["acquisition", "ota", "devsecops", "opportunities"]
+      },
+      {
+        "topic": "Cleared Workforce Shortage",
+        "content": "The defense industry faces a critical shortage of cleared personnel. Backlog for Secret clearances averages 150 days, TS/SCI averages 450 days. This bottleneck affects hiring for 65% of defense contractors. Solutions include Trusted Workforce 2.0 adoption, continuous vetting, and remote work policies for unclassified portions of work. Companies investing in training pipelines see competitive advantage.",
+        "source": "DCSA Annual Report / Industry Survey",
+        "date": "2025-03-01",
+        "relevance_score": 0.82,
+        "tags": ["workforce", "clearances", "hiring", "challenges"]
+      },
+      {
+        "topic": "Supply Chain Security Mandates",
+        "content": "New supply chain security requirements under Section 889 and DFARS 252.204-7012 are expanding. Contractors must now track and report on supplier cybersecurity posture. Software Bill of Materials (SBOM) requirements are becoming standard for software-intensive programs. Third-party risk management is now a contract requirement for most primes.",
+        "source": "DFARS Updates / NIST Guidelines",
+        "date": "2025-05-01",
+        "relevance_score": 0.90,
+        "tags": ["supply_chain", "compliance", "sbom", "risk"]
+      },
+      {
+        "topic": "AI/ML Adoption in Defense",
+        "content": "DoD AI adoption accelerating under CDAO leadership. Responsible AI principles are now mandatory for all AI-enabled systems. Key application areas: predictive maintenance (45% adoption), intelligence analysis (38%), autonomous systems (32%), cybersecurity (30%), and logistics optimization (28%). Challenge: AI systems must meet rigorous T&E requirements before deployment.",
+        "source": "CDAO / DoD AI Strategy Update",
+        "date": "2025-04-15",
+        "relevance_score": 0.86,
+        "tags": ["ai", "ml", "innovation", "opportunities"]
+      }
+    ]
+  }
+}

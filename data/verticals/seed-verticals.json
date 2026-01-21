@@ -1,0 +1,433 @@
+{
+  "description": "Seed data for Atlas GTM verticals collection",
+  "version": "1.0.0",
+  "created_at": "2026-01-21",
+  "verticals": [
+    {
+      "slug": "defense",
+      "name": "Defense & Aerospace",
+      "description": "Companies in military contracting, aerospace manufacturing, government defense, national security technology, and intelligence services. Includes defense contractors, aerospace manufacturers, and defense tech startups.",
+      "level": 0,
+      "industry_keywords": [
+        "defense",
+        "aerospace",
+        "military",
+        "government contractor",
+        "national security",
+        "intelligence",
+        "defense contractor",
+        "defense technology",
+        "military technology",
+        "aerospace manufacturing",
+        "government contracting",
+        "dod contractor",
+        "defense systems",
+        "weapons systems",
+        "unmanned systems",
+        "defense electronics"
+      ],
+      "title_keywords": [
+        "program manager",
+        "contracting officer",
+        "security clearance",
+        "defense",
+        "military",
+        "aerospace",
+        "procurement",
+        "government relations",
+        "classified",
+        "dod",
+        "contracts manager"
+      ],
+      "campaign_patterns": [
+        "defense_*",
+        "aero_*",
+        "gov_*",
+        "dod_*",
+        "aerospace_*",
+        "military_*"
+      ],
+      "detection_weights": {
+        "industry": 0.9,
+        "title": 0.5,
+        "campaign": 0.7
+      },
+      "aliases": [
+        "aero",
+        "aerospace",
+        "defense-tech",
+        "govtech",
+        "military-tech"
+      ],
+      "exclusion_keywords": [
+        "real estate defense",
+        "legal defense",
+        "self defense class",
+        "defensive driving"
+      ],
+      "ai_fallback_threshold": 0.5,
+      "example_companies": [
+        "Lockheed Martin",
+        "Northrop Grumman",
+        "Raytheon",
+        "General Dynamics",
+        "Boeing Defense",
+        "L3Harris",
+        "BAE Systems",
+        "Anduril",
+        "Palantir",
+        "Shield AI"
+      ],
+      "classification_prompt": "Classify this company as defense/aerospace if they manufacture military equipment, provide government contracting services, develop defense technology, or serve the defense industrial base.",
+      "is_active": true
+    },
+    {
+      "slug": "fintech",
+      "name": "Financial Technology",
+      "description": "Companies using technology to improve or automate financial services. Includes payment processors, lending platforms, neobanks, wealth management, insurance tech, and blockchain/crypto companies.",
+      "level": 0,
+      "industry_keywords": [
+        "fintech",
+        "financial technology",
+        "payments",
+        "banking technology",
+        "insurtech",
+        "wealthtech",
+        "regtech",
+        "lending platform",
+        "neobank",
+        "digital banking",
+        "payment processing",
+        "financial services technology",
+        "blockchain",
+        "cryptocurrency",
+        "defi"
+      ],
+      "title_keywords": [
+        "chief financial",
+        "finance director",
+        "treasury",
+        "payments",
+        "banking",
+        "financial operations",
+        "finops",
+        "compliance officer",
+        "risk officer"
+      ],
+      "campaign_patterns": [
+        "fintech_*",
+        "finance_*",
+        "banking_*",
+        "payments_*",
+        "lending_*"
+      ],
+      "detection_weights": {
+        "industry": 0.9,
+        "title": 0.5,
+        "campaign": 0.7
+      },
+      "aliases": [
+        "financial-technology",
+        "finance-tech",
+        "banking-tech",
+        "paytech"
+      ],
+      "exclusion_keywords": [
+        "financial advisor",
+        "financial planner",
+        "accounting firm",
+        "cpa firm"
+      ],
+      "ai_fallback_threshold": 0.5,
+      "example_companies": [
+        "Stripe",
+        "Square",
+        "Plaid",
+        "Robinhood",
+        "Chime",
+        "Affirm",
+        "Brex",
+        "Ramp",
+        "Mercury",
+        "Wise"
+      ],
+      "classification_prompt": "Classify this company as fintech if they provide technology solutions for financial services, payment processing, lending, banking, or wealth management.",
+      "is_active": true
+    },
+    {
+      "slug": "saas",
+      "name": "Software as a Service",
+      "description": "Companies providing cloud-based software solutions on a subscription basis. This is the default/fallback vertical for general B2B software companies.",
+      "level": 0,
+      "industry_keywords": [
+        "saas",
+        "software as a service",
+        "cloud software",
+        "enterprise software",
+        "b2b software",
+        "business software",
+        "software platform",
+        "cloud platform",
+        "software company",
+        "tech startup"
+      ],
+      "title_keywords": [
+        "software",
+        "engineering",
+        "product",
+        "technology",
+        "it director",
+        "cto",
+        "vp engineering",
+        "head of product"
+      ],
+      "campaign_patterns": [
+        "saas_*",
+        "software_*",
+        "cloud_*",
+        "b2b_*",
+        "enterprise_*"
+      ],
+      "detection_weights": {
+        "industry": 0.9,
+        "title": 0.5,
+        "campaign": 0.7
+      },
+      "aliases": [
+        "software",
+        "cloud",
+        "enterprise-software",
+        "b2b-software"
+      ],
+      "exclusion_keywords": [],
+      "ai_fallback_threshold": 0.5,
+      "example_companies": [
+        "Salesforce",
+        "HubSpot",
+        "Slack",
+        "Zoom",
+        "Notion",
+        "Figma",
+        "Airtable",
+        "Monday.com",
+        "Asana",
+        "Intercom"
+      ],
+      "classification_prompt": "Classify this company as SaaS if they provide cloud-based software on a subscription model to businesses.",
+      "is_active": true
+    },
+    {
+      "slug": "healthtech",
+      "name": "Healthcare Technology",
+      "description": "Companies providing technology solutions for healthcare including digital health, medical devices, health IT, telehealth, and clinical software.",
+      "level": 0,
+      "industry_keywords": [
+        "healthtech",
+        "healthcare technology",
+        "digital health",
+        "health it",
+        "medical technology",
+        "medtech",
+        "telehealth",
+        "telemedicine",
+        "clinical software",
+        "ehr",
+        "emr",
+        "health informatics",
+        "biotech",
+        "pharmaceutical technology",
+        "life sciences"
+      ],
+      "title_keywords": [
+        "chief medical",
+        "health",
+        "clinical",
+        "medical director",
+        "healthcare",
+        "patient",
+        "nursing",
+        "physician",
+        "cmo",
+        "chief nursing"
+      ],
+      "campaign_patterns": [
+        "health_*",
+        "healthcare_*",
+        "medical_*",
+        "clinical_*",
+        "telehealth_*"
+      ],
+      "detection_weights": {
+        "industry": 0.9,
+        "title": 0.5,
+        "campaign": 0.7
+      },
+      "aliases": [
+        "healthcare",
+        "health-tech",
+        "medtech",
+        "digital-health"
+      ],
+      "exclusion_keywords": [
+        "health food",
+        "health club",
+        "fitness",
+        "gym"
+      ],
+      "ai_fallback_threshold": 0.5,
+      "example_companies": [
+        "Epic Systems",
+        "Cerner",
+        "Teladoc",
+        "Oscar Health",
+        "Ro",
+        "Hims & Hers",
+        "Doximity",
+        "Veeva Systems",
+        "Tempus",
+        "Color Health"
+      ],
+      "classification_prompt": "Classify this company as healthtech if they provide technology solutions for healthcare delivery, clinical operations, medical devices, or health information management.",
+      "is_active": true
+    },
+    {
+      "slug": "ecommerce",
+      "name": "E-commerce & Retail Tech",
+      "description": "Companies providing technology for online retail, marketplaces, and retail operations including commerce platforms, fulfillment, and retail analytics.",
+      "level": 0,
+      "industry_keywords": [
+        "ecommerce",
+        "e-commerce",
+        "retail technology",
+        "commerce platform",
+        "marketplace",
+        "online retail",
+        "retail tech",
+        "fulfillment",
+        "logistics technology",
+        "d2c",
+        "direct to consumer",
+        "retail operations",
+        "inventory management",
+        "point of sale"
+      ],
+      "title_keywords": [
+        "ecommerce",
+        "e-commerce",
+        "retail",
+        "merchandising",
+        "supply chain",
+        "fulfillment",
+        "logistics",
+        "marketplace",
+        "commerce"
+      ],
+      "campaign_patterns": [
+        "ecommerce_*",
+        "retail_*",
+        "commerce_*",
+        "marketplace_*",
+        "d2c_*"
+      ],
+      "detection_weights": {
+        "industry": 0.9,
+        "title": 0.5,
+        "campaign": 0.7
+      },
+      "aliases": [
+        "retail",
+        "retail-tech",
+        "commerce",
+        "marketplace-tech"
+      ],
+      "exclusion_keywords": [
+        "retail banking",
+        "retail investor"
+      ],
+      "ai_fallback_threshold": 0.5,
+      "example_companies": [
+        "Shopify",
+        "BigCommerce",
+        "Faire",
+        "Flexport",
+        "Deliverr",
+        "ShipBob",
+        "Bolt",
+        "Attentive",
+        "Klaviyo",
+        "Yotpo"
+      ],
+      "classification_prompt": "Classify this company as ecommerce if they provide technology for online retail, marketplace operations, or retail fulfillment and logistics.",
+      "is_active": true
+    },
+    {
+      "slug": "cybersecurity",
+      "name": "Cybersecurity",
+      "description": "Companies providing security solutions including network security, identity management, threat detection, and security operations.",
+      "level": 0,
+      "industry_keywords": [
+        "cybersecurity",
+        "information security",
+        "network security",
+        "security software",
+        "identity management",
+        "threat detection",
+        "security operations",
+        "soc",
+        "siem",
+        "endpoint security",
+        "cloud security",
+        "application security",
+        "zero trust",
+        "data protection"
+      ],
+      "title_keywords": [
+        "ciso",
+        "security",
+        "infosec",
+        "information security",
+        "cybersecurity",
+        "security engineer",
+        "security architect",
+        "security operations"
+      ],
+      "campaign_patterns": [
+        "security_*",
+        "cyber_*",
+        "infosec_*",
+        "secops_*"
+      ],
+      "detection_weights": {
+        "industry": 0.9,
+        "title": 0.5,
+        "campaign": 0.7
+      },
+      "aliases": [
+        "security",
+        "infosec",
+        "cyber",
+        "security-tech"
+      ],
+      "exclusion_keywords": [
+        "physical security",
+        "security guard",
+        "security officer building"
+      ],
+      "ai_fallback_threshold": 0.5,
+      "example_companies": [
+        "CrowdStrike",
+        "Palo Alto Networks",
+        "Okta",
+        "Cloudflare",
+        "SentinelOne",
+        "Snyk",
+        "Wiz",
+        "Lacework",
+        "Recorded Future",
+        "Abnormal Security"
+      ],
+      "classification_prompt": "Classify this company as cybersecurity if they provide security products or services for protecting networks, data, applications, or identities.",
+      "is_active": true
+    }
+  ]
+}
