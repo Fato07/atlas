@@ -306,7 +306,7 @@ export const DEFAULT_CONFIG: ReplyHandlerConfig = {
 // ===========================================
 
 /**
- * Log event types per FR-029
+ * Log event types per FR-029 and T045
  */
 export type LogEventType =
   | 'reply_received'
@@ -317,7 +317,10 @@ export type LogEventType =
   | 'approval_resolved'
   | 'crm_updated'
   | 'insight_extracted'
-  | 'processing_error';
+  | 'processing_error'
+  | 'channels_stopped'
+  | 'workflow_complete'
+  | 'workflow_failed';
 
 /**
  * Base log event fields
@@ -431,6 +434,47 @@ export interface ProcessingErrorEvent extends BaseLogEvent {
 }
 
 /**
+ * Channels stopped event (T045)
+ * Logged when Instantly/HeyReach campaigns are stopped for DNC processing
+ */
+export interface ChannelsStoppedEvent extends BaseLogEvent {
+  event: 'channels_stopped';
+  channels: {
+    instantly_stopped: boolean;
+    heyreach_stopped: boolean;
+  };
+  reason: 'unsubscribe' | 'not_interested' | 'bounce' | 'out_of_office' | 'manual';
+  campaign_ids?: string[];
+}
+
+/**
+ * Workflow complete event (T045)
+ * Logged when a category workflow completes successfully
+ */
+export interface WorkflowCompleteEvent extends BaseLogEvent {
+  event: 'workflow_complete';
+  category: 'A' | 'B' | 'C';
+  duration_ms: number;
+  actions_completed: string[];
+  notifications_sent: number;
+}
+
+/**
+ * Workflow failed event (T045)
+ * Logged when a category workflow fails
+ */
+export interface WorkflowFailedEvent extends BaseLogEvent {
+  event: 'workflow_failed';
+  category: 'A' | 'B' | 'C';
+  duration_ms: number;
+  failed_step: string;
+  error_code: string;
+  error_message: string;
+  partial_completion: boolean;
+  actions_completed: string[];
+}
+
+/**
  * Union of all log events
  */
 export type LogEvent =
@@ -442,4 +486,7 @@ export type LogEvent =
   | ApprovalResolvedEvent
   | CRMUpdatedEvent
   | InsightExtractedEvent
-  | ProcessingErrorEvent;
+  | ProcessingErrorEvent
+  | ChannelsStoppedEvent
+  | WorkflowCompleteEvent
+  | WorkflowFailedEvent;

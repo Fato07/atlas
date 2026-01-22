@@ -1,0 +1,464 @@
+{
+  "name": "Category C - Manual Review Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "category-c",
+        "authentication": "headerAuth",
+        "options": {
+          "rawBody": false
+        },
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "Category C Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 300],
+      "webhookId": "category-c"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-secret",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.CATEGORY_WORKFLOW_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'AUTH_FAILED', message: 'Invalid webhook secret' } }) }}",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "auth-failed-response",
+      "name": "Auth Failed Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [500, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate and extract Category C lead data\nconst body = $input.first().json.body;\n\nif (!body.lead) {\n  throw new Error('Missing required field: lead');\n}\n\nconst lead = {\n  email: body.lead.email || null,\n  name: body.lead.name || 'Unknown',\n  company: body.lead.company || null,\n  title: body.lead.title || null,\n  linkedin_url: body.lead.linkedin_url || null,\n  airtable_id: body.lead.airtable_id || null\n};\n\nconst classification = {\n  intent: body.classification?.intent || 'unclear',\n  category: 'C',\n  effective_category: body.classification?.effective_category || 'C',\n  confidence: body.classification?.confidence || 0.5,\n  complexity: body.classification?.complexity || 'complex',\n  sentiment: body.classification?.sentiment || 'neutral',\n  key_topics: body.classification?.key_topics || [],\n  urgency: body.classification?.urgency || 'medium'\n};\n\nconst routing = {\n  tier: body.routing?.tier || 3,\n  action_type: body.routing?.action_type || 'escalation',\n  requires_human_review: true\n};\n\nconst context = {\n  reply_id: body.reply_id || `cat_c_${Date.now()}`,\n  campaign_id: body.campaign?.id || null,\n  campaign_name: body.campaign?.name || null,\n  source: body.source || 'email',\n  brain_id: body.brain_id || $env.DEFAULT_BRAIN_ID || 'default',\n  message_body: body.reply?.body || '',\n  message_preview: (body.reply?.body || '').substring(0, 500)\n};\n\nreturn [{ json: { lead, classification, routing, context, original_body: body } }];"
+      },
+      "id": "extract-lead-data",
+      "name": "Extract Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.AIRTABLE_API_URL || 'https://api.airtable.com/v0' }}/{{ $env.AIRTABLE_BASE_ID }}/Leads",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  records: [{\n    fields: {\n      \"Status\": \"Pending Review\",\n      \"Category\": \"C\",\n      \"Intent\": $json.classification.intent,\n      \"Confidence Score\": $json.classification.confidence,\n      \"Complexity\": $json.classification.complexity,\n      \"Last Reply Date\": new Date().toISOString(),\n      \"Reply Channel\": $json.context.source,\n      \"Campaign\": $json.context.campaign_name,\n      \"Key Topics\": $json.classification.key_topics.join(', '),\n      \"Notes\": \"Auto-classified as Category C (Manual Review) on \" + new Date().toISOString() + \". Intent: \" + $json.classification.intent + \", Urgency: \" + $json.classification.urgency\n    },\n    id: $json.lead.airtable_id\n  }]\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "update-airtable",
+      "name": "Update Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.QDRANT_API_URL || 'http://localhost:6333' }}/collections/bucket_c_patterns/points/upsert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  points: [{\n    id: $json.context.reply_id.replace(/[^a-zA-Z0-9]/g, '_'),\n    payload: {\n      brain_id: $json.context.brain_id,\n      lead_email: $json.lead.email,\n      lead_company: $json.lead.company,\n      intent: $json.classification.intent,\n      complexity: $json.classification.complexity,\n      key_topics: $json.classification.key_topics,\n      message_body: $json.context.message_body,\n      source: $json.context.source,\n      campaign_id: $json.context.campaign_id,\n      created_at: new Date().toISOString(),\n      status: 'pending_review'\n    }\n  }],\n  wait: true\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "store-kb-pattern",
+      "name": "Store Pattern in KB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 200],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.QDRANT_API_URL || 'http://localhost:6333' }}/collections/bucket_c_patterns/points/query",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  filter: {\n    must: [\n      { key: 'brain_id', match: { value: $('Extract Lead Data').first().json.context.brain_id } },\n      { key: 'intent', match: { value: $('Extract Lead Data').first().json.classification.intent } },\n      { key: 'status', match: { value: 'resolved' } }\n    ]\n  },\n  limit: 3,\n  with_payload: true\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "search-similar",
+      "name": "Search Similar Patterns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 200],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format similar patterns for Slack display\nconst similarResponse = $input.first().json;\nconst leadData = $('Extract Lead Data').first().json;\n\nlet similarPatterns = [];\nif (similarResponse.result && similarResponse.result.length > 0) {\n  similarPatterns = similarResponse.result.map((p, i) => ({\n    index: i + 1,\n    intent: p.payload?.intent || 'unknown',\n    company: p.payload?.lead_company || 'N/A',\n    resolution: p.payload?.resolution_notes || 'No notes',\n    resolved_by: p.payload?.resolved_by || 'Unknown',\n    resolved_at: p.payload?.resolved_at || 'Unknown'\n  }));\n}\n\nreturn [{\n  json: {\n    lead: leadData.lead,\n    classification: leadData.classification,\n    routing: leadData.routing,\n    context: leadData.context,\n    similar_patterns: similarPatterns,\n    has_similar: similarPatterns.length > 0\n  }\n}];"
+      },
+      "id": "format-similar",
+      "name": "Format Similar Patterns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 200]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_MANUAL_REVIEW_CHANNEL || '#manual-review' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"header\", \"text\": { \"type\": \"plain_text\", \"text\": \"🔍 Category C: Manual Review Required\", \"emoji\": true } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Lead:* \" + $json.lead.name + \"\\n*Company:* \" + ($json.lead.company || 'N/A') + \"\\n*Title:* \" + ($json.lead.title || 'N/A') + \"\\n*Email:* \" + ($json.lead.email || 'N/A') + ($json.lead.linkedin_url ? '\\n*LinkedIn:* ' + $json.lead.linkedin_url : '') } },\n  { \"type\": \"section\", \"fields\": [\n    { \"type\": \"mrkdwn\", \"text\": \"*Intent:*\\n\" + $json.classification.intent },\n    { \"type\": \"mrkdwn\", \"text\": \"*Confidence:*\\n\" + Math.round($json.classification.confidence * 100) + \"%\" },\n    { \"type\": \"mrkdwn\", \"text\": \"*Complexity:*\\n\" + $json.classification.complexity },\n    { \"type\": \"mrkdwn\", \"text\": \"*Urgency:*\\n\" + $json.classification.urgency }\n  ]},\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Key Topics:* \" + ($json.classification.key_topics.length > 0 ? $json.classification.key_topics.join(', ') : 'None detected') } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Message:*\\n> \" + $json.context.message_preview.replace(/\\n/g, '\\n> ') } },\n  { \"type\": \"divider\" },\n  ($json.has_similar ? { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*📚 Similar Past Patterns Found (' + $json.similar_patterns.length + '):*\\n\" + $json.similar_patterns.map(p => '• ' + p.company + ' (' + p.intent + '): ' + p.resolution.substring(0, 100)).join('\\n') } } : { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"_No similar resolved patterns found in KB._\" } }),\n  { \"type\": \"divider\" },\n  { \"type\": \"actions\", \"elements\": [\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✅ Mark Interested\", \"emoji\": true }, \"style\": \"primary\", \"action_id\": \"mark_interested\", \"value\": JSON.stringify({ reply_id: $json.context.reply_id, lead_email: $json.lead.email, action: 'mark_interested', source: $json.context.source }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"❌ Mark Not Interested\", \"emoji\": true }, \"style\": \"danger\", \"action_id\": \"mark_not_interested\", \"value\": JSON.stringify({ reply_id: $json.context.reply_id, lead_email: $json.lead.email, action: 'mark_not_interested', source: $json.context.source }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"📝 Draft Response\", \"emoji\": true }, \"action_id\": \"draft_response\", \"value\": JSON.stringify({ reply_id: $json.context.reply_id, lead_email: $json.lead.email, action: 'draft_response', source: $json.context.source }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"📅 Send Calendar\", \"emoji\": true }, \"action_id\": \"send_calendar\", \"value\": JSON.stringify({ reply_id: $json.context.reply_id, lead_email: $json.lead.email, action: 'send_calendar', source: $json.context.source }) }\n  ]},\n  { \"type\": \"context\", \"elements\": [{ \"type\": \"mrkdwn\", \"text\": \"Reply ID: \" + $json.context.reply_id + \" | Source: \" + $json.context.source + \" | Campaign: \" + ($json.context.campaign_name || 'N/A') + \" | \" + new Date().toISOString() }] }\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-review",
+      "name": "Slack Review Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1500, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-high-urgency",
+              "leftValue": "={{ $('Format Similar Patterns').first().json.classification.urgency }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-urgency",
+      "name": "High Urgency?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1700, 200]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_URGENT_CHANNEL || '#urgent-reviews' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"header\", \"text\": { \"type\": \"plain_text\", \"text\": \"🚨 URGENT: High Priority Review Needed\", \"emoji\": true } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Lead:* \" + $('Format Similar Patterns').first().json.lead.name + \" (\" + ($('Format Similar Patterns').first().json.lead.company || 'N/A') + \")\\n*Intent:* \" + $('Format Similar Patterns').first().json.classification.intent + \"\\n*Confidence:* \" + Math.round($('Format Similar Patterns').first().json.classification.confidence * 100) + \"%\" } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Message Preview:*\\n> \" + $('Format Similar Patterns').first().json.context.message_preview.substring(0, 200) + \"...\" } },\n  { \"type\": \"context\", \"elements\": [{ \"type\": \"mrkdwn\", \"text\": \"Full details in #manual-review | Reply ID: \" + $('Format Similar Patterns').first().json.context.reply_id }] }\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-urgent",
+      "name": "Slack Urgent Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1900, 100],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all action results\nconst formattedData = $('Format Similar Patterns').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    category: 'C',\n    lead: formattedData.lead,\n    actions: {\n      airtable_updated: true,\n      kb_pattern_stored: true,\n      similar_patterns_found: formattedData.similar_patterns.length,\n      slack_notified: true,\n      urgent_alert_sent: formattedData.classification.urgency === 'high'\n    },\n    classification: formattedData.classification,\n    routing: formattedData.routing,\n    similar_patterns: formattedData.similar_patterns,\n    processed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2100, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2300, 200]
+    }
+  ],
+  "connections": {
+    "Category C Webhook": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Extract Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Failed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Update Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Airtable": {
+      "main": [
+        [
+          {
+            "node": "Store Pattern in KB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Pattern in KB": {
+      "main": [
+        [
+          {
+            "node": "Search Similar Patterns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Similar Patterns": {
+      "main": [
+        [
+          {
+            "node": "Format Similar Patterns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Similar Patterns": {
+      "main": [
+        [
+          {
+            "node": "Slack Review Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Review Notification": {
+      "main": [
+        [
+          {
+            "node": "High Urgency?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Urgency?": {
+      "main": [
+        [
+          {
+            "node": "Slack Urgent Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Urgent Alert": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "atlas-gtm-category-c-workflow"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "category-c"
+    },
+    {
+      "name": "manual-review"
+    },
+    {
+      "name": "reply-handling"
+    },
+    {
+      "name": "atlas-gtm"
+    },
+    {
+      "name": "knowledge-base"
+    }
+  ],
+  "pinData": {},
+  "notes": [
+    {
+      "id": "note-1",
+      "content": "## Category C - Manual Review Workflow v1.0\n\n### Purpose\nProcess replies requiring human review (Category C) through the knowledge-enhanced review pipeline:\n1. Update Airtable status to \"Pending Review\"\n2. Store pattern in KB (bucket_c_patterns collection)\n3. Search for similar resolved patterns\n4. Notify Slack #manual-review with context\n5. Send urgent alert for high-priority items\n\n### Intents Handled\n- `question`: Lead asking questions\n- `objection`: Lead has objections (timing, budget, etc.)\n- `referral`: Lead referring to someone else\n- `unclear`: Intent couldn't be determined with confidence\n- Low confidence (<0.7) Category A/B → routed to C\n\n### Environment Variables Required\n- `CATEGORY_WORKFLOW_SECRET`: Secret for authenticating workflow requests\n- `AIRTABLE_API_URL`: Airtable API base URL\n- `AIRTABLE_BASE_ID`: Airtable base ID\n- `QDRANT_API_URL`: Qdrant API URL (default: http://localhost:6333)\n- `SLACK_MANUAL_REVIEW_CHANNEL`: Slack channel for reviews (default: #manual-review)\n- `SLACK_URGENT_CHANNEL`: Slack channel for urgent items (default: #urgent-reviews)\n\n### Input Payload\n```json\n{\n  \"lead\": {\n    \"email\": \"john@example.com\",\n    \"name\": \"John Doe\",\n    \"company\": \"Acme Corp\",\n    \"title\": \"VP Engineering\",\n    \"linkedin_url\": \"https://linkedin.com/in/johndoe\",\n    \"airtable_id\": \"rec123\"\n  },\n  \"classification\": {\n    \"intent\": \"question\",\n    \"confidence\": 0.75,\n    \"complexity\": \"complex\",\n    \"urgency\": \"medium\",\n    \"key_topics\": [\"pricing\", \"integration\"],\n    \"sentiment\": \"neutral\"\n  },\n  \"routing\": {\n    \"tier\": 3,\n    \"action_type\": \"escalation\"\n  },\n  \"campaign\": {\n    \"id\": \"camp_456\",\n    \"name\": \"Q1 Outreach\"\n  },\n  \"source\": \"email\",\n  \"reply_id\": \"rpl_789\",\n  \"reply\": {\n    \"body\": \"What's your pricing for enterprise? Also, do you integrate with Salesforce?\"\n  },\n  \"brain_id\": \"brain_fintech\"\n}\n```\n\n### Knowledge Base Integration\n- Stores each pattern in `bucket_c_patterns` collection\n- Searches for similar resolved patterns by intent and brain_id\n- Shows past resolutions to help with current reply\n- Patterns marked as \"pending_review\" until resolved\n\n### Slack Actions\n- **Mark Interested**: Moves lead to Category A workflow\n- **Mark Not Interested**: Moves lead to Category B workflow\n- **Draft Response**: Opens response drafting interface\n- **Send Calendar**: Quick action to send calendar link\n\n### Urgency Escalation\n- High urgency items get additional notification in #urgent-reviews\n- Helps ensure quick response to time-sensitive leads\n\n### Test with curl\n```bash\ncurl -X POST http://localhost:5678/webhook/category-c \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $CATEGORY_WORKFLOW_SECRET\" \\\n  -d '{\"lead\":{\"email\":\"test@example.com\",\"name\":\"Test User\",\"company\":\"Test Co\"},\"classification\":{\"intent\":\"question\",\"confidence\":0.75,\"complexity\":\"complex\",\"urgency\":\"medium\",\"key_topics\":[\"pricing\"]},\"source\":\"email\",\"reply\":{\"body\":\"What is your pricing?\"}}'\n```",
+      "position": [100, 500]
+    }
+  ]
+}

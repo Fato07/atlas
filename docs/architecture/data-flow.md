@@ -1,8 +1,8 @@
 # Atlas GTM Data Flow Architecture
 
-> **Last Updated**: 2026-01-21
-> **Version**: 1.5
-> **Status**: Active - HeyReach MCP Server added (35 tools)
+> **Last Updated**: 2026-01-22
+> **Version**: 1.8
+> **Status**: Active - Lead Flow (End-to-End) diagram added
 
 ---
 
@@ -10,16 +10,17 @@
 
 1. [Implementation Status](#implementation-status)
 2. [System Overview](#system-overview)
-3. [Overview Flow Diagram](#overview-flow-diagram)
-4. [Agent Communication Overview](#agent-communication-overview)
-5. [Lead Scorer Flow](#lead-scorer-flow)
-6. [Reply Handler Flow](#reply-handler-flow)
-7. [Meeting Prep Agent Flow](#meeting-prep-agent-flow)
-8. [Learning Loop Agent Flow](#learning-loop-agent-flow)
-9. [Brain Lifecycle Flow](#brain-lifecycle-flow)
-10. [Component Architecture](#component-architecture)
-11. [Glossary](#glossary)
-12. [Change Log](#change-log)
+3. [Lead Flow (End-to-End)](#lead-flow-end-to-end)
+4. [Overview Flow Diagram](#overview-flow-diagram)
+5. [Agent Communication Overview](#agent-communication-overview)
+6. [Lead Scorer Flow](#lead-scorer-flow)
+7. [Reply Handler Flow](#reply-handler-flow)
+8. [Meeting Prep Agent Flow](#meeting-prep-agent-flow)
+9. [Learning Loop Agent Flow](#learning-loop-agent-flow)
+10. [Brain Lifecycle Flow](#brain-lifecycle-flow)
+11. [Component Architecture](#component-architecture)
+12. [Glossary](#glossary)
+13. [Change Log](#change-log)
 
 ---
 
@@ -65,6 +66,10 @@
 | `meeting-prep-analysis.json` | Meeting Prep | Fireflies webhook | Post-meeting transcript analysis |
 | `reply-handler-instantly.json` | Reply Handler | Instantly webhook | Process email reply notifications |
 | `reply-handler-linkedin.json` | Reply Handler | HeyReach webhook | Process LinkedIn message notifications |
+| `reply-classification.json` | Reply Handler | Agent callback | A/B/C category classification orchestration |
+| `category-a-handler.json` | Reply Handler | Classification result | Interested leads: Attio CRM, calendar link, LinkedIn |
+| `category-b-handler.json` | Reply Handler | Classification result | Not interested: stop campaigns, DNC processing |
+| `category-c-handler.json` | Reply Handler | Classification result | Manual review: Slack notification, pattern storage |
 
 > **Location**: `workflows/n8n/`
 
@@ -74,12 +79,142 @@
 
 Atlas GTM is an AI-first GTM Operations System that uses swappable "brains" (vertical-specific knowledge bases) to enable rapid market validation. The core concept: **same agents, different brains** for rapid multi-vertical market validation.
 
+### Three-System Architecture
+
+| System | Role | Stores | Analogy |
+|--------|------|--------|---------|
+| **KB (Qdrant)** | System-level intelligence | ICP definitions, objection patterns, response templates, messaging insights, pattern learning | **"Brain"** |
+| **Airtable** | Lead data hub | Per-lead scoring columns, enrichment data, status tracking, routing decisions | **"Hands"** |
+| **Attio CRM** | Pipeline visibility | Engaged leads only (Category A), pipeline stages, deal tracking | **"Eyes"** |
+
+**Critical Distinction**:
+- **KB is NOT for**: Individual lead scoring, per-lead enrichment, lead routing decisions
+- **KB IS for**: "What is our ICP definition?", "How did we handle similar objections?", "What patterns are we seeing?"
+
 ### Key Architectural Patterns
 
 1. **Brain-Scoped Queries**: Every KB query MUST include `brain_id` filter
 2. **Tier-Based Routing**: Leads/replies routed to Tier 1 (auto), Tier 2 (approval), or Tier 3 (human)
 3. **MCP Tool Integration**: Agents use MCP servers for external integrations
 4. **State Persistence**: Long-running operations checkpoint to state files
+
+---
+
+## Lead Flow (End-to-End)
+
+This section shows the complete lead journey from source to outcome, including the three-system architecture (Hands/Brain/Eyes) and reply classification paths.
+
+### Three-System Architecture
+
+```mermaid
+flowchart LR
+    subgraph Hands["AIRTABLE (Hands)"]
+        AT_DATA["Operational Data<br/>Per-lead scoring<br/>Enrichment columns<br/>Status tracking"]
+    end
+
+    subgraph Brain["KB (Brain)"]
+        KB_DATA["System Intelligence<br/>ICP definitions<br/>Objection patterns<br/>Response templates"]
+    end
+
+    subgraph Eyes["ATTIO (Eyes)"]
+        CRM_DATA["Pipeline Visibility<br/>Engaged leads only<br/>Deal tracking<br/>Stage progression"]
+    end
+
+    Hands <-->|"Scoring decisions"| Brain
+    Brain <-->|"Category A only"| Eyes
+```
+
+### Lead Flow Diagram
+
+```mermaid
+flowchart TD
+    subgraph Sources["Lead Sources"]
+        SRC[/"New Lead"/]
+    end
+
+    subgraph Enrichment["Enrichment & Scoring (Airtable)"]
+        ENRICH["Enrichment APIs<br/>• Company size<br/>• Location/Market<br/>• Funding stage<br/>• Title/Seniority"]
+        SCORE["Score Calculation<br/>icp_score = SUM(weights)<br/>is_hq_lead = score >= threshold"]
+    end
+
+    subgraph Sequences["Outreach Sequences"]
+        SEQ["Start Sequences<br/>Instantly (Email)<br/>HeyReach (LinkedIn)"]
+    end
+
+    subgraph Classification["Reply Classification"]
+        CLASS{{"Classify A/B/C<br/>(0.70 confidence)"}}
+    end
+
+    subgraph Categories["Category Handlers"]
+        CAT_A["Category A<br/>INTERESTED"]
+        CAT_B["Category B<br/>NOT INTERESTED"]
+        CAT_C["Category C<br/>MANUAL REVIEW"]
+    end
+
+    subgraph Outcomes["System Updates"]
+        OUT_A["• Update Airtable (replied)<br/>• Create Attio record<br/>• Send calendar link<br/>• Add to LinkedIn campaign<br/>• Slack notification<br/>• Profile enrichment"]
+        OUT_B["• Update Airtable (not_interested)<br/>• Generate profile summary<br/>• Evaluate referral potential<br/>• Auto-send referral request (VP+)"]
+        OUT_C["• Update Airtable (pending_review)<br/>• Store pattern to KB<br/>• Find similar patterns<br/>• Slack notification + actions"]
+    end
+
+    SRC --> ENRICH
+    ENRICH --> SCORE
+    SCORE --> SEQ
+    SEQ -->|"Reply received"| CLASS
+
+    CLASS -->|"Interested"| CAT_A
+    CLASS -->|"Not interested"| CAT_B
+    CLASS -->|"Needs review"| CAT_C
+
+    CAT_A --> OUT_A
+    CAT_B --> OUT_B
+    CAT_C --> OUT_C
+
+    OUT_A -->|"Engaged lead"| ATTIO[("Attio CRM")]
+    OUT_A -->|"Status update"| AIRTABLE[("Airtable")]
+    OUT_B -->|"Status + summary"| AIRTABLE
+    OUT_C -->|"Pattern storage"| KB[("KB/Qdrant")]
+    OUT_C -->|"Status update"| AIRTABLE
+
+    %% Styling
+    classDef source fill:#e3f2fd,stroke:#1565c0
+    classDef enrich fill:#e8f5e9,stroke:#2e7d32
+    classDef seq fill:#fff3e0,stroke:#e65100
+    classDef classify fill:#f3e5f5,stroke:#7b1fa2
+    classDef catA fill:#c8e6c9,stroke:#2e7d32
+    classDef catB fill:#ffcdd2,stroke:#b71c1c
+    classDef catC fill:#fff9c4,stroke:#f57f17
+    classDef storage fill:#fce4ec,stroke:#880e4f
+
+    class SRC source
+    class ENRICH,SCORE enrich
+    class SEQ seq
+    class CLASS classify
+    class CAT_A,OUT_A catA
+    class CAT_B,OUT_B catB
+    class CAT_C,OUT_C catC
+    class ATTIO,AIRTABLE,KB storage
+```
+
+**Key Insight**: Category A is the ONLY path to Attio CRM. Categories B and C update Airtable only. Category C also writes to KB for pattern learning.
+
+### Scoring vs Intelligence
+
+| Aspect | Airtable (Scoring) | KB (Intelligence) |
+|--------|-------------------|-------------------|
+| **Scope** | Per-lead, quantitative | System-wide, qualitative |
+| **Contains** | Enrichment columns, scores, routing flags | ICP definitions, patterns, templates |
+| **Example** | `uk_market = +3, icp_score = 8` | "How to respond to budget objection?" |
+| **Queries** | "Is this lead HQ?" | "What patterns are we seeing?" |
+| **Updated by** | Enrichment APIs, Lead Scorer | Learning Loop Agent, manual seeding |
+
+### Category Workflow Details
+
+| Category | Trigger | Primary Actions | Secondary Actions |
+|----------|---------|-----------------|-------------------|
+| **A (Interested)** | positive_interest, meeting request | Attio CRM record, calendar booking link | LinkedIn campaign (email replies), Slack notification, profile enrichment |
+| **B (Not Interested)** | not_interested, unsubscribe | Airtable status → not_interested | Profile summary, referral evaluation, auto-referral (VP+ polite decliners) |
+| **C (Manual Review)** | unclear, low confidence (<0.70) | Airtable status → pending_review, KB pattern storage | Similar pattern search, Slack notification with context |
 
 ---
 
@@ -616,6 +751,66 @@ flowchart TD
 | `unsubscribe` | Opt out request | Auto |
 | `not_interested` | Explicit rejection | Auto |
 | `unclear` | Cannot determine intent | 3 |
+
+### A/B/C Category Workflow (GTM Ops)
+
+The Reply Handler uses an A/B/C category system for streamlined lead routing with 0.70 confidence threshold:
+
+```mermaid
+flowchart TD
+    REPLY[/"Inbound Reply"/] --> CLASS["Classify Reply<br/>(Claude structured output)"]
+
+    CLASS --> CAT{"Category?"}
+
+    CAT -->|"Category A<br/>Interested"| A_FLOW["Category A Workflow"]
+    CAT -->|"Category B<br/>Not Interested"| B_FLOW["Category B Workflow"]
+    CAT -->|"Category C<br/>Manual Review"| C_FLOW["Category C Workflow"]
+
+    subgraph CatA["Category A: Interested Lead"]
+        A_FLOW --> A1["Create Attio CRM Record<br/>(stage: New Reply)"]
+        A1 --> A2["Send Calendar Link<br/>(< 60s response)"]
+        A2 --> A3["Add to LinkedIn Campaign<br/>(if email channel)"]
+    end
+
+    subgraph CatB["Category B: Not Interested"]
+        B_FLOW --> B1["Stop Instantly Campaign<br/>(via MCP)"]
+        B1 --> B2["Stop HeyReach Campaign<br/>(via MCP)"]
+        B2 --> B3["Add to DNC List"]
+    end
+
+    subgraph CatC["Category C: Manual Review"]
+        C_FLOW --> C1["Send Slack Notification<br/>(Block Kit)"]
+        C1 --> C2["Store Pattern to KB<br/>(bucket_c_patterns)"]
+        C2 --> C3["Await Human Decision"]
+    end
+
+    A3 --> LOG["Log: workflow_complete"]
+    B3 --> LOG
+    C3 --> LOG
+
+    %% Styling
+    classDef catA fill:#c8e6c9,stroke:#2e7d32
+    classDef catB fill:#ffcdd2,stroke:#b71c1c
+    classDef catC fill:#fff9c4,stroke:#f57f17
+    classDef log fill:#e3f2fd,stroke:#1565c0
+
+    class A_FLOW,A1,A2,A3 catA
+    class B_FLOW,B1,B2,B3 catB
+    class C_FLOW,C1,C2,C3 catC
+    class LOG log
+```
+
+#### Category Definitions
+
+| Category | Signals | Actions | Confidence |
+|----------|---------|---------|------------|
+| **A (Interested)** | positive_interest, meeting request, calendar request | Attio CRM record, calendar link, LinkedIn campaign | ≥ 0.70 |
+| **B (Not Interested)** | not_interested, unsubscribe, out_of_office, bounce | Stop campaigns, DNC list, no further contact | ≥ 0.70 |
+| **C (Manual Review)** | question, objection, referral, unclear, low confidence | Slack notification, pattern storage, human decision | < 0.70 or complex |
+
+#### Low Confidence Routing
+
+When classification confidence is below 0.70, the lead is routed to Category C regardless of the detected intent. This ensures human review for ambiguous cases.
 
 ---
 
@@ -1327,7 +1522,7 @@ flowchart LR
 | Term | Definition |
 |------|------------|
 | **BANT** | Budget, Authority, Need, Timeline - framework for qualifying sales leads. Meeting Prep Agent extracts and scores these dimensions. |
-| **Brain** | A vertical-specific knowledge base containing ICP rules, templates, handlers, and research. The "swappable" component that gives agents domain expertise. |
+| **Brain** | A vertical-specific knowledge base containing ICP rules, templates, handlers, and research. The "swappable" component that gives agents domain expertise. **IMPORTANT**: Brain = KB = system-level intelligence (NOT lead-level operations). Stores "what we know" not "per-lead data". |
 | **brain_id** | Unique identifier for a brain (format: `brain_{vertical}_{timestamp}`). MUST be included in all KB queries. |
 | **Brief** | Pre-call preparation document generated by Meeting Prep Agent, delivered via Slack Block Kit. |
 | **Context Gatherer** | Component that orchestrates parallel sub-agent calls to collect meeting context from multiple sources. |
@@ -1354,6 +1549,9 @@ flowchart LR
 
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
+| 2026-01-22 | 1.8 | Added Lead Flow (End-to-End) section with Three-System Architecture diagram (Hands/Brain/Eyes), comprehensive lead flow diagram showing enrichment → scoring → sequences → classification → category outcomes, Scoring vs Intelligence table, and Category Workflow Details table. Verified against actual code (category-a/b/c.ts). | Atlas GTM Team |
+| 2026-01-22 | 1.7 | Added A/B/C category workflow for GTM Ops (0.70 confidence threshold). Added 4 new n8n workflows (reply-classification, category-a/b/c handlers). Updated Reply Handler Flow section with category routing diagram. | Atlas GTM Team |
+| 2026-01-21 | 1.6 | Added Three-System Architecture section clarifying KB=Brain=system-level intelligence (NOT lead-level). Updated glossary. | Atlas GTM Team |
 | 2026-01-21 | 1.5 | Added n8n workflow files reference table (6 workflows for learning loop, meeting prep, reply handler) | Atlas GTM Team |
 | 2026-01-21 | 1.4 | Added HeyReach MCP status ✅ (35 tools: campaigns, inbox, accounts, lists, leads, stats, webhooks) | Atlas GTM Team |
 | 2026-01-21 | 1.3 | Updated Instantly MCP status to ✅ complete (38 tools via v2 API: campaigns, leads, emails, accounts, analytics, jobs) | Atlas GTM Team |

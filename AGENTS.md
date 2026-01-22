@@ -56,6 +56,18 @@ docker-compose down
 
 ## Architecture
 
+### Three-System Architecture
+
+| System | Role | Analogy |
+|--------|------|---------|
+| **KB (Qdrant)** | System-level intelligence | **"Brain"** - ICP definitions, objection patterns, response templates |
+| **Airtable** | Lead data hub | **"Hands"** - Per-lead scoring, enrichment, status, routing |
+| **Attio CRM** | Pipeline visibility | **"Eyes"** - Engaged leads only (Category A) |
+
+**KB is NOT for lead-level operations** (scoring, enrichment, routing). It's for system-level intelligence that agents query for context.
+
+### Directory Structure
+
 ```
 atlas-gtm/
 ├── packages/
@@ -69,14 +81,24 @@ atlas-gtm/
 │       └── src/
 │           ├── base-agent.ts   # Base class with context tracking
 │           ├── sub-agent.ts    # Sub-agent framework
-│           ├── lead-scorer.ts  # Lead scoring (80k budget)
-│           ├── reply-handler.ts # Reply handling (60k budget)
-│           └── meeting-prep.ts # Meeting prep (100k budget)
+│           ├── lead-scorer/     # Lead scoring agent (80k budget)
+│           ├── reply-handler/   # Reply handling agent (60k budget)
+│           │   ├── contracts/   # Zod schemas: reply-input, classification, workflows
+│           │   ├── classifier.ts      # A/B/C category classification
+│           │   ├── category-a.ts      # Interested lead workflow
+│           │   ├── category-b.ts      # Not interested workflow
+│           │   ├── category-c.ts      # Manual review workflow
+│           │   ├── state.ts           # Session state management
+│           │   ├── logger.ts          # Structured JSON logging (FR-029)
+│           │   └── webhook.ts         # HTTP endpoints
+│           ├── meeting-prep/    # Meeting prep agent (100k budget)
+│           └── learning-loop/   # Learning loop agent (40k budget)
 ├── mcp-servers/                # Python MCP servers
 │   └── atlas_gtm_mcp/
 │       ├── qdrant/             # Knowledge base tools
 │       ├── attio/              # CRM tools
-│       └── instantly/          # Email tools
+│       ├── instantly/          # Email outreach tools (38 tools, v2 API)
+│       └── heyreach/           # LinkedIn automation tools (35 tools)
 ├── scripts/
 │   └── init-qdrant.ts          # Database initialization
 └── state/                      # Agent state files (gitignored)
@@ -224,3 +246,32 @@ These require confirmation:
 - Modify `.env` or credentials
 - Run production deployments
 - Modify n8n workflows
+
+## Active Technologies
+
+**Core Stack**:
+- TypeScript 5.4+ (Bun runtime) for agents
+- Python 3.11+ for MCP servers
+- n8n for workflow orchestration
+
+**Agent Dependencies**: @anthropic-ai/sdk, @qdrant/js-client-rest, @slack/web-api, Zod
+
+**MCP Dependencies**: FastMCP ≥0.4.0, httpx, tenacity, pydantic ≥2.7.0, structlog
+
+**Data Stores**:
+- Qdrant (vector collections: brains, icp_rules, response_templates, objection_handlers, market_research, insights, bucket_c_patterns)
+- Airtable (lead database with scoring columns)
+- Attio CRM (engaged leads pipeline)
+- Upstash Redis (caching)
+
+## Recent Changes
+
+- **015-gtm-ops-workflows**: GTM Operations Workflows for Reply Handler agent
+  - A/B/C category classification system with 0.70 confidence threshold
+  - Category A (Interested): Attio CRM record creation, calendar link sending, LinkedIn campaign addition
+  - Category B (Not Interested): Instantly/HeyReach campaign stopping via MCP tools, DNC processing
+  - Category C (Manual Review): Slack notification with lead context, pattern storage to KB
+  - 6 n8n workflows: reply-classification, category-a/b/c handlers, learning-loop, meeting-prep
+  - Structured JSON logging (FR-029): reply_received, reply_classified, channels_stopped, workflow_complete, workflow_failed events
+  - State management with Zod-validated checkpointing
+  - 232 tests passing

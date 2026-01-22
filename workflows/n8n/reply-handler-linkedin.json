@@ -30,7 +30,7 @@
             {
               "id": "validate-secret",
               "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
-              "rightValue": "={{ $env.WEBHOOK_SECRET }}",
+              "rightValue": "={{ $env.HEYREACH_WEBHOOK_SECRET }}",
               "operator": {
                 "type": "string",
                 "operation": "equals"
@@ -71,7 +71,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse HeyReach webhook payload and transform for Reply Handler agent\nconst body = $input.first().json.body;\n\n// Validate required fields\nif (!body.event_type || body.event_type !== 'message_received') {\n  throw new Error('Invalid event type: expected message_received');\n}\n\nif (!body.lead?.linkedin_url || !body.message?.text) {\n  throw new Error('Missing required fields: lead.linkedin_url or message.text');\n}\n\n// Transform to agent format\nconst agentPayload = {\n  source: 'linkedin',\n  reply: {\n    lead_linkedin_url: body.lead.linkedin_url,\n    lead_name: `${body.lead.first_name || ''} ${body.lead.last_name || ''}`.trim() || 'Unknown',\n    company: body.lead.company || 'Unknown',\n    title: body.lead.headline || '',\n    campaign_id: body.campaign_id || null,\n    conversation_id: body.message.conversation_id || null,\n    body: body.message.text,\n    received_at: body.message.timestamp || new Date().toISOString()\n  },\n  brain_id: body.brain_id || $env.DEFAULT_BRAIN_ID || 'default'\n};\n\nreturn [{ json: agentPayload }];"
+        "jsCode": "// Parse HeyReach webhook payload and transform for Reply Handler agent\nconst body = $input.first().json.body;\n\n// Validate required fields\nif (!body.event_type || body.event_type !== 'message_received') {\n  throw new Error('Invalid event type: expected message_received');\n}\n\nif (!body.lead?.linkedin_url || !body.message?.text) {\n  throw new Error('Missing required fields: lead.linkedin_url or message.text');\n}\n\n// Transform to agent format\nconst agentPayload = {\n  source: 'heyreach',\n  reply: {\n    lead_linkedin_url: body.lead.linkedin_url,\n    lead_name: `${body.lead.first_name || ''} ${body.lead.last_name || ''}`.trim() || 'Unknown',\n    company: body.lead.company || 'Unknown',\n    title: body.lead.headline || '',\n    campaign_id: body.campaign_id || null,\n    conversation_id: body.message.conversation_id || null,\n    body: body.message.text,\n    received_at: body.message.timestamp || new Date().toISOString()\n  },\n  brain_id: body.brain_id || $env.DEFAULT_BRAIN_ID || 'default'\n};\n\nreturn [{ json: agentPayload }];"
       },
       "id": "parse-message-event",
       "name": "Parse Message Event",
@@ -82,7 +82,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/reply-handler/process",
+        "url": "={{ $env.REPLY_HANDLER_URL || 'http://localhost:3002' }}/webhook/reply",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -94,7 +94,7 @@
             },
             {
               "name": "X-Webhook-Secret",
-              "value": "={{ $env.WEBHOOK_SECRET }}"
+              "value": "={{ $env.HEYREACH_WEBHOOK_SECRET }}"
             }
           ]
         },
@@ -152,15 +152,15 @@
       "parameters": {
         "conditions": {
           "options": {
-            "caseSensitive": false,
+            "caseSensitive": true,
             "leftValue": "",
             "typeValidation": "strict"
           },
           "conditions": [
             {
-              "id": "check-meeting-request",
-              "leftValue": "={{ $json.data?.intent }}",
-              "rightValue": "meeting_request",
+              "id": "check-category-a",
+              "leftValue": "={{ $json.category }}",
+              "rightValue": "A",
               "operator": {
                 "type": "string",
                 "operation": "equals"
@@ -171,8 +171,8 @@
         },
         "options": {}
       },
-      "id": "route-meeting-request",
-      "name": "Meeting Request?",
+      "id": "route-category-a",
+      "name": "Is Category A?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [1100, 100]
@@ -181,15 +181,15 @@
       "parameters": {
         "conditions": {
           "options": {
-            "caseSensitive": false,
+            "caseSensitive": true,
             "leftValue": "",
             "typeValidation": "strict"
           },
           "conditions": [
             {
-              "id": "check-positive",
-              "leftValue": "={{ $json.data?.intent }}",
-              "rightValue": "positive",
+              "id": "check-category-b",
+              "leftValue": "={{ $json.category }}",
+              "rightValue": "B",
               "operator": {
                 "type": "string",
                 "operation": "equals"
@@ -200,52 +200,23 @@
         },
         "options": {}
       },
-      "id": "route-positive",
-      "name": "Positive Response?",
+      "id": "route-category-b",
+      "name": "Is Category B?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [1100, 300]
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": false,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "check-question",
-              "leftValue": "={{ $json.data?.intent }}",
-              "rightValue": "question",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "route-question",
-      "name": "Has Question?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [1100, 500]
-    },
-    {
-      "parameters": {
-        "channel": "={{ $env.SLACK_HOT_LEADS_CHANNEL || '#hot-leads' }}",
+        "channel": "={{ $env.SLACK_INTERESTED_LEADS_CHANNEL || '#interested-leads' }}",
         "messageType": "block",
-        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"🔥 *LinkedIn Meeting Request!*\\n\\n*Lead:* \" + $json.data.lead_name + \"\\n*Title:* \" + ($json.data.title || \"N/A\") + \"\\n*Company:* \" + $json.data.company + \"\\n*LinkedIn:* \" + $json.data.lead_linkedin_url + \"\\n\\n*Message:*\\n> \" + ($json.data.body || \"\").substring(0, 300) + \"\\n\\n*Suggested Action:* Share Calendly link\\n\\n*Suggested Response:*\\n```\" + ($json.data.suggested_response || \"Thanks for your interest! Here's my calendar: [Calendly link]\").substring(0, 500) + \"```\" } },\n  { \"type\": \"divider\" },\n  { \"type\": \"actions\", \"elements\": [\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"📅 Send Calendly\", \"emoji\": true }, \"style\": \"primary\", \"action_id\": \"send_calendly\", \"value\": JSON.stringify({ linkedin_url: $json.data.lead_linkedin_url, action: \"send_calendly\" }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✏️ Custom Response\", \"emoji\": true }, \"action_id\": \"custom_response\", \"value\": JSON.stringify({ linkedin_url: $json.data.lead_linkedin_url, action: \"custom_response\" }) }\n  ]}\n]) }}",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"header\", \"text\": { \"type\": \"plain_text\", \"text\": \"🎯 Category A: Interested Lead (LinkedIn)\", \"emoji\": true } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Lead:* \" + ($('Parse Message Event').first().json?.reply?.lead_name || 'Unknown') + \"\\n*Company:* \" + ($('Parse Message Event').first().json?.reply?.company || 'Unknown') + \"\\n*Title:* \" + ($('Parse Message Event').first().json?.reply?.title || 'N/A') + \"\\n*LinkedIn:* \" + ($('Parse Message Event').first().json?.reply?.lead_linkedin_url || 'N/A') + \"\\n\\n*Intent:* \" + ($json.intent || 'positive_interest') + \"\\n*Tier:* \" + ($json.tier || 1) } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Message:*\\n> \" + ($('Parse Message Event').first().json?.reply?.body || '').substring(0, 300) } },\n  { \"type\": \"divider\" },\n  { \"type\": \"context\", \"elements\": [{ \"type\": \"mrkdwn\", \"text\": \"📱 Source: LinkedIn | Processed: \" + new Date().toISOString() }] }\n]) }}",
         "otherOptions": {
           "includeLinkToWorkflow": false
         }
       },
-      "id": "slack-meeting-request",
-      "name": "Slack Meeting Request",
+      "id": "slack-category-a",
+      "name": "Slack Category A",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.2,
       "position": [1350, 0],
@@ -258,25 +229,36 @@
     },
     {
       "parameters": {
-        "jsCode": "// Queue personalized follow-up for positive responses\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    queued: true,\n    action: 'personalized_followup',\n    lead_linkedin_url: data.data?.lead_linkedin_url,\n    lead_name: data.data?.lead_name,\n    company: data.data?.company,\n    suggested_response: data.data?.suggested_response,\n    queue_time: new Date().toISOString(),\n    follow_up_delay_hours: 24\n  }\n}];"
-      },
-      "id": "queue-followup",
-      "name": "Queue Follow-up",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1350, 200]
-    },
-    {
-      "parameters": {
-        "channel": "={{ $env.SLACK_REVIEW_CHANNEL || '#lead-reviews' }}",
+        "channel": "={{ $env.SLACK_DNC_CHANNEL || '#dnc-list' }}",
         "messageType": "block",
-        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"❓ *LinkedIn Question - Review Needed*\\n\\n*Lead:* \" + $json.data.lead_name + \"\\n*Title:* \" + ($json.data.title || \"N/A\") + \"\\n*Company:* \" + $json.data.company + \"\\n*LinkedIn:* \" + $json.data.lead_linkedin_url + \"\\n\\n*Question:*\\n> \" + ($json.data.body || \"\").substring(0, 400) + \"\\n\\n*Suggested Response:*\\n```\" + ($json.data.suggested_response || \"Review and craft response\").substring(0, 500) + \"```\" } },\n  { \"type\": \"divider\" },\n  { \"type\": \"actions\", \"elements\": [\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✅ Approve & Send\", \"emoji\": true }, \"style\": \"primary\", \"action_id\": \"approve_response\", \"value\": JSON.stringify({ linkedin_url: $json.data.lead_linkedin_url, action: \"approve_response\" }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✏️ Edit\", \"emoji\": true }, \"action_id\": \"edit_response\", \"value\": JSON.stringify({ linkedin_url: $json.data.lead_linkedin_url, action: \"edit_response\" }) }\n  ]}\n]) }}",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"header\", \"text\": { \"type\": \"plain_text\", \"text\": \"🚫 Category B: Not Interested (LinkedIn)\", \"emoji\": true } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Lead:* \" + ($('Parse Message Event').first().json?.reply?.lead_name || 'Unknown') + \"\\n*Company:* \" + ($('Parse Message Event').first().json?.reply?.company || 'Unknown') + \"\\n*LinkedIn:* \" + ($('Parse Message Event').first().json?.reply?.lead_linkedin_url || 'N/A') + \"\\n\\n*Intent:* \" + ($json.intent || 'not_interested') } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Message:*\\n> \" + ($('Parse Message Event').first().json?.reply?.body || '').substring(0, 200) } },\n  { \"type\": \"context\", \"elements\": [{ \"type\": \"mrkdwn\", \"text\": \"📱 Source: LinkedIn | Action: Added to DNC list | \" + new Date().toISOString() }] }\n]) }}",
         "otherOptions": {
           "includeLinkToWorkflow": false
         }
       },
-      "id": "slack-question",
-      "name": "Slack Question Review",
+      "id": "slack-category-b",
+      "name": "Slack Category B",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1350, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_MANUAL_REVIEW_CHANNEL || '#manual-review' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"header\", \"text\": { \"type\": \"plain_text\", \"text\": \"🔍 Category C: Manual Review Needed (LinkedIn)\", \"emoji\": true } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Lead:* \" + ($('Parse Message Event').first().json?.reply?.lead_name || 'Unknown') + \"\\n*Company:* \" + ($('Parse Message Event').first().json?.reply?.company || 'Unknown') + \"\\n*Title:* \" + ($('Parse Message Event').first().json?.reply?.title || 'N/A') + \"\\n*LinkedIn:* \" + ($('Parse Message Event').first().json?.reply?.lead_linkedin_url || 'N/A') + \"\\n\\n*Intent:* \" + ($json.intent || 'unclear') + \"\\n*Tier:* \" + ($json.tier || 3) } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Message:*\\n> \" + ($('Parse Message Event').first().json?.reply?.body || '').substring(0, 400) } },\n  { \"type\": \"divider\" },\n  { \"type\": \"actions\", \"elements\": [\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✅ Mark Interested\", \"emoji\": true }, \"style\": \"primary\", \"action_id\": \"mark_interested\", \"value\": JSON.stringify({ lead_url: $('Parse Message Event').first().json?.reply?.lead_linkedin_url, action: 'mark_interested', source: 'linkedin' }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"❌ Mark Not Interested\", \"emoji\": true }, \"style\": \"danger\", \"action_id\": \"mark_not_interested\", \"value\": JSON.stringify({ lead_url: $('Parse Message Event').first().json?.reply?.lead_linkedin_url, action: 'mark_not_interested', source: 'linkedin' }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"📝 Draft Response\", \"emoji\": true }, \"action_id\": \"draft_response\", \"value\": JSON.stringify({ lead_url: $('Parse Message Event').first().json?.reply?.lead_linkedin_url, action: 'draft_response', source: 'linkedin' }) }\n  ]},\n  { \"type\": \"context\", \"elements\": [{ \"type\": \"mrkdwn\", \"text\": \"📱 Source: LinkedIn | Reply ID: \" + ($json.reply_id || 'N/A') + \" | \" + new Date().toISOString() }] }\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-category-c",
+      "name": "Slack Category C",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.2,
       "position": [1350, 400],
@@ -289,23 +271,13 @@
     },
     {
       "parameters": {
-        "jsCode": "// Handle not interested or graceful close\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    action: 'graceful_close',\n    lead_linkedin_url: data.data?.lead_linkedin_url,\n    lead_name: data.data?.lead_name,\n    intent: data.data?.intent || 'not_interested',\n    processed_at: new Date().toISOString(),\n    close_sequence_triggered: true\n  }\n}];"
-      },
-      "id": "graceful-close",
-      "name": "Graceful Close",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1350, 600]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Aggregate final response\nconst originalPayload = $('Parse Message Event').first().json;\nconst agentResponse = $('Call Reply Handler Agent').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      source: 'linkedin',\n      lead_linkedin_url: originalPayload.reply.lead_linkedin_url,\n      lead_name: originalPayload.reply.lead_name,\n      intent: agentResponse.data?.intent || 'unknown',\n      processed_at: new Date().toISOString(),\n      action_taken: true\n    }\n  }\n}];"
+        "jsCode": "// Aggregate final response for webhook return\nconst originalPayload = $('Parse Message Event').first().json;\nconst agentResponse = $('Call Reply Handler Agent').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      source: 'linkedin',\n      reply_id: agentResponse.reply_id,\n      lead_linkedin_url: originalPayload.reply.lead_linkedin_url,\n      lead_name: originalPayload.reply.lead_name,\n      category: agentResponse.category,\n      intent: agentResponse.intent,\n      tier: agentResponse.tier,\n      processed_at: new Date().toISOString()\n    }\n  }\n}];"
       },
       "id": "aggregate-response",
       "name": "Aggregate Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1550, 300]
+      "position": [1550, 200]
     },
     {
       "parameters": {
@@ -327,12 +299,13 @@
       "name": "Success Response",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1750, 300]
+      "position": [1750, 200]
     },
     {
       "parameters": {
         "channel": "={{ $env.SLACK_ALERTS_CHANNEL || '#gtm-alerts' }}",
-        "text": "={{ '⚠️ *Reply Handler Error*\\n\\n*Source:* LinkedIn (HeyReach)\\n*Error:* ' + ($json.error?.message || 'Unknown error') + '\\n*Lead:* ' + ($('Parse Message Event').first().json?.reply?.lead_name || 'Unknown') + '\\n*Timestamp:* ' + new Date().toISOString() }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"header\", \"text\": { \"type\": \"plain_text\", \"text\": \"⚠️ Reply Handler Error (LinkedIn)\", \"emoji\": true } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Error:* \" + ($json.error?.message || 'Unknown error') + \"\\n*Lead:* \" + ($('Parse Message Event').first().json?.reply?.lead_name || 'Unknown') + \"\\n*LinkedIn:* \" + ($('Parse Message Event').first().json?.reply?.lead_linkedin_url || 'N/A') } },\n  { \"type\": \"context\", \"elements\": [{ \"type\": \"mrkdwn\", \"text\": \"📱 Source: LinkedIn (HeyReach) | \" + new Date().toISOString() }] }\n]) }}",
         "otherOptions": {
           "includeLinkToWorkflow": true
         }
@@ -369,7 +342,7 @@
       "name": "Error Response",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1350, 450]
+      "position": [1350, 500]
     }
   ],
   "connections": {
@@ -428,7 +401,7 @@
       "main": [
         [
           {
-            "node": "Meeting Request?",
+            "node": "Is Category A?",
             "type": "main",
             "index": 0
           }
@@ -442,61 +415,43 @@
         ]
       ]
     },
-    "Meeting Request?": {
+    "Is Category A?": {
       "main": [
         [
           {
-            "node": "Slack Meeting Request",
+            "node": "Slack Category A",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Positive Response?",
+            "node": "Is Category B?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Positive Response?": {
+    "Is Category B?": {
       "main": [
         [
           {
-            "node": "Queue Follow-up",
+            "node": "Slack Category B",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Has Question?",
+            "node": "Slack Category C",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Has Question?": {
-      "main": [
-        [
-          {
-            "node": "Slack Question Review",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Graceful Close",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Slack Meeting Request": {
+    "Slack Category A": {
       "main": [
         [
           {
@@ -507,7 +462,7 @@
         ]
       ]
     },
-    "Queue Follow-up": {
+    "Slack Category B": {
       "main": [
         [
           {
@@ -518,18 +473,7 @@
         ]
       ]
     },
-    "Slack Question Review": {
-      "main": [
-        [
-          {
-            "node": "Aggregate Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Graceful Close": {
+    "Slack Category C": {
       "main": [
         [
           {
@@ -571,7 +515,7 @@
     "saveDataErrorExecution": "all",
     "callerPolicy": "workflowsFromSameOwner"
   },
-  "versionId": "1.0.0",
+  "versionId": "2.0.0",
   "meta": {
     "templateCredsSetupCompleted": false,
     "instanceId": "atlas-gtm-reply-handler-linkedin"
@@ -589,13 +533,16 @@
     },
     {
       "name": "atlas-gtm"
+    },
+    {
+      "name": "category-routing"
     }
   ],
   "pinData": {},
   "notes": [
     {
       "id": "note-1",
-      "content": "## Reply Handler - LinkedIn (HeyReach)\n\n### Purpose\nProcess incoming LinkedIn message replies from HeyReach campaigns.\n\n### Environment Variables Required:\n- `WEBHOOK_SECRET`: Secret for authenticating webhook requests\n- `AGENT_BASE_URL`: URL of the agent service (default: http://localhost:3001)\n- `SLACK_HOT_LEADS_CHANNEL`: Slack channel for meeting requests (default: #hot-leads)\n- `SLACK_REVIEW_CHANNEL`: Slack channel for questions (default: #lead-reviews)\n- `SLACK_ALERTS_CHANNEL`: Slack channel for errors (default: #gtm-alerts)\n\n### Workflow Flow:\n1. **HeyReach Webhook**: Receives POST from HeyReach on message_received event\n2. **Auth Check**: Validates X-Webhook-Secret header\n3. **Parse Message Event**: Transforms HeyReach payload to agent format\n4. **Call Reply Handler Agent**: POSTs to agent with 60s timeout, 3 retries\n5. **Route by Intent**:\n   - Meeting Request → #hot-leads + Calendly suggestion\n   - Positive → Queue personalized follow-up\n   - Question → #lead-reviews for response review\n   - Not Interested → Graceful close sequence\n6. **Success/Error Response**: Returns result to HeyReach\n\n### HeyReach Webhook Payload:\n```json\n{\n  \"event_type\": \"message_received\",\n  \"campaign_id\": \"hrcmp_456\",\n  \"lead\": {\n    \"linkedin_url\": \"https://linkedin.com/in/johndoe\",\n    \"first_name\": \"John\",\n    \"last_name\": \"Doe\",\n    \"headline\": \"VP Engineering at Acme Corp\",\n    \"company\": \"Acme Corp\"\n  },\n  \"message\": {\n    \"text\": \"Thanks for connecting!\",\n    \"timestamp\": \"2024-01-15T10:30:00Z\",\n    \"conversation_id\": \"conv_xyz\"\n  }\n}\n```\n\n### Test with curl:\n```bash\ncurl -X POST http://localhost:5678/webhook/reply-handler-linkedin \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $WEBHOOK_SECRET\" \\\n  -d '{\"event_type\":\"message_received\",\"lead\":{\"linkedin_url\":\"https://linkedin.com/in/test\",\"first_name\":\"John\"},\"message\":{\"text\":\"Yes, I\\'d be open to a chat!\"}}'\n```",
+      "content": "## Reply Handler - LinkedIn (HeyReach) v2.0\n\n### Purpose\nProcess incoming LinkedIn message replies from HeyReach campaigns using A/B/C category classification.\n\n### A/B/C Category System\n- **Category A** (Interested): positive_interest → `#interested-leads`\n- **Category B** (Not Interested): unsubscribe, not_interested, out_of_office, bounce → `#dnc-list`\n- **Category C** (Manual Review): question, objection, referral, unclear → `#manual-review`\n\n### Environment Variables Required\n- `HEYREACH_WEBHOOK_SECRET`: Secret for authenticating HeyReach webhook requests\n- `REPLY_HANDLER_URL`: URL of the Reply Handler agent (default: http://localhost:3002)\n- `SLACK_INTERESTED_LEADS_CHANNEL`: Slack channel for Category A (default: #interested-leads)\n- `SLACK_DNC_CHANNEL`: Slack channel for Category B (default: #dnc-list)\n- `SLACK_MANUAL_REVIEW_CHANNEL`: Slack channel for Category C (default: #manual-review)\n- `SLACK_ALERTS_CHANNEL`: Slack channel for errors (default: #gtm-alerts)\n- `DEFAULT_BRAIN_ID`: Default brain ID for classification (optional)\n\n### Workflow Flow\n1. **HeyReach Webhook**: Receives POST from HeyReach on message_received event\n2. **Auth Check**: Validates X-Webhook-Secret header against HEYREACH_WEBHOOK_SECRET\n3. **Parse Message Event**: Transforms HeyReach payload to agent format\n4. **Call Reply Handler Agent**: POSTs to /webhook/reply with 60s timeout, 3 retries\n5. **Route by Category**:\n   - Category A → `#interested-leads` (auto-notification)\n   - Category B → `#dnc-list` (auto-DNC)\n   - Category C → `#manual-review` (action buttons for human review)\n6. **Success/Error Response**: Returns result to HeyReach\n\n### Agent Response Format\n```json\n{\n  \"success\": true,\n  \"reply_id\": \"rpl_abc123\",\n  \"category\": \"A\",\n  \"tier\": 1,\n  \"action_type\": \"auto_response\",\n  \"intent\": \"positive_interest\",\n  \"source\": \"heyreach\"\n}\n```\n\n### HeyReach Webhook Payload\n```json\n{\n  \"event_type\": \"message_received\",\n  \"campaign_id\": \"hrcmp_456\",\n  \"lead\": {\n    \"linkedin_url\": \"https://linkedin.com/in/johndoe\",\n    \"first_name\": \"John\",\n    \"last_name\": \"Doe\",\n    \"headline\": \"VP Engineering at Acme Corp\",\n    \"company\": \"Acme Corp\"\n  },\n  \"message\": {\n    \"text\": \"Thanks for connecting!\",\n    \"timestamp\": \"2024-01-15T10:30:00Z\",\n    \"conversation_id\": \"conv_xyz\"\n  }\n}\n```\n\n### Test with curl\n```bash\ncurl -X POST http://localhost:5678/webhook/reply-handler-linkedin \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $HEYREACH_WEBHOOK_SECRET\" \\\n  -d '{\"event_type\":\"message_received\",\"lead\":{\"linkedin_url\":\"https://linkedin.com/in/test\",\"first_name\":\"John\"},\"message\":{\"text\":\"Yes, I would love to learn more!\"}}'\n```\n\n### Version History\n- v1.0.0: Initial implementation with intent-based routing\n- v2.0.0: Migrated to A/B/C category routing system (aligned with spec FR-001 to FR-016)",
       "position": [100, 550]
     }
   ]

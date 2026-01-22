@@ -28,6 +28,7 @@ function createMockConfig(overrides?: Partial<WebhookConfig>): WebhookConfig {
     port: 3002,
     brainId: 'brain_fintech',
     instantlySecret: 'test-instantly-secret',
+    heyreachSecret: 'test-heyreach-secret',
     slackSigningSecret: 'test-slack-secret',
     handleReply: mock(async () => ({
       reply_id: 'reply_12345',
@@ -166,8 +167,34 @@ describe('Reply webhook endpoint', () => {
   });
 
   test('rejects missing webhook secret', async () => {
+    // Must use a valid Instantly payload structure - the generic endpoint
+    // auto-detects source by parsing first, then validates auth
+    const validPayload = {
+      event: 'reply_received',
+      timestamp: new Date().toISOString(),
+      reply: {
+        id: 'reply_123',
+        message_id: 'msg_456',
+        thread_id: 'thread_789',
+        content: 'Test reply',
+        received_at: new Date().toISOString(),
+      },
+      lead: {
+        id: 'lead_001',
+        email: 'test@example.com',
+      },
+      campaign: {
+        id: 'camp_123',
+        name: 'Test Campaign',
+        sequence_step: 1,
+      },
+      account_id: 'acc_001',
+      workspace_id: 'ws_001',
+    };
+
     const request = createMockRequest('/webhook/reply', 'POST', {
-      body: { event: 'reply_received' },
+      body: validPayload,
+      // No X-Webhook-Secret header
     });
 
     const response = await handler(request);
@@ -178,9 +205,33 @@ describe('Reply webhook endpoint', () => {
   });
 
   test('rejects invalid webhook secret', async () => {
+    // Must use a valid Instantly payload structure
+    const validPayload = {
+      event: 'reply_received',
+      timestamp: new Date().toISOString(),
+      reply: {
+        id: 'reply_123',
+        message_id: 'msg_456',
+        thread_id: 'thread_789',
+        content: 'Test reply',
+        received_at: new Date().toISOString(),
+      },
+      lead: {
+        id: 'lead_001',
+        email: 'test@example.com',
+      },
+      campaign: {
+        id: 'camp_123',
+        name: 'Test Campaign',
+        sequence_step: 1,
+      },
+      account_id: 'acc_001',
+      workspace_id: 'ws_001',
+    };
+
     const request = createMockRequest('/webhook/reply', 'POST', {
       headers: { 'X-Webhook-Secret': 'wrong-secret' },
-      body: { event: 'reply_received' },
+      body: validPayload,
     });
 
     const response = await handler(request);
@@ -188,7 +239,8 @@ describe('Reply webhook endpoint', () => {
     expect(response.status).toBe(HTTP_STATUS.UNAUTHORIZED);
   });
 
-  test('validates Instantly webhook payload', async () => {
+  test('rejects unknown webhook payload format', async () => {
+    // Payloads that don't match Instantly or HeyReach schemas are rejected
     const request = createMockRequest('/webhook/reply', 'POST', {
       headers: { 'X-Webhook-Secret': config.instantlySecret },
       body: { invalid: 'payload' },
@@ -198,7 +250,7 @@ describe('Reply webhook endpoint', () => {
 
     expect(response.status).toBe(HTTP_STATUS.BAD_REQUEST);
     const data = await response.json();
-    expect(data.code).toBe('ERR_INVALID_PAYLOAD');
+    expect(data.code).toBe('ERR_UNKNOWN_PAYLOAD');
   });
 
   test('processes valid webhook payload', async () => {

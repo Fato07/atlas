@@ -1,0 +1,514 @@
+{
+  "name": "Category A - Interested Lead Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "category-a",
+        "authentication": "headerAuth",
+        "options": {
+          "rawBody": false
+        },
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "Category A Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 300],
+      "webhookId": "category-a"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-secret",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.CATEGORY_WORKFLOW_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'AUTH_FAILED', message: 'Invalid webhook secret' } }) }}",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "auth-failed-response",
+      "name": "Auth Failed Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [500, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate and extract Category A lead data\nconst body = $input.first().json.body;\n\nif (!body.lead) {\n  throw new Error('Missing required field: lead');\n}\n\nconst lead = {\n  email: body.lead.email || null,\n  name: body.lead.name || 'Unknown',\n  company: body.lead.company || null,\n  title: body.lead.title || null,\n  linkedin_url: body.lead.linkedin_url || null,\n  phone: body.lead.phone || null\n};\n\nconst classification = {\n  intent: body.classification?.intent || 'positive_interest',\n  category: 'A',\n  confidence: body.classification?.confidence || 0.9,\n  tier: body.routing?.tier || 1\n};\n\nconst context = {\n  reply_id: body.reply_id || null,\n  campaign_id: body.campaign?.id || null,\n  campaign_name: body.campaign?.name || null,\n  source: body.source || 'email',\n  brain_id: body.brain_id || $env.DEFAULT_BRAIN_ID || 'default',\n  message_preview: (body.reply?.body || '').substring(0, 300)\n};\n\nreturn [{ json: { lead, classification, context, original_body: body } }];"
+      },
+      "id": "extract-lead-data",
+      "name": "Extract Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.AIRTABLE_API_URL || 'https://api.airtable.com/v0' }}/{{ $env.AIRTABLE_BASE_ID }}/Leads",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  records: [{\n    fields: {\n      \"Status\": \"Interested\",\n      \"Category\": \"A\",\n      \"Intent\": $json.classification.intent,\n      \"Confidence Score\": $json.classification.confidence,\n      \"Last Reply Date\": new Date().toISOString(),\n      \"Reply Channel\": $json.context.source,\n      \"Campaign\": $json.context.campaign_name,\n      \"Notes\": \"Auto-classified as Category A (Interested) on \" + new Date().toISOString()\n    },\n    id: $json.lead.airtable_id\n  }]\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "update-airtable",
+      "name": "Update Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ATTIO_API_URL || 'https://api.attio.com/v2' }}/objects/people/records",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.ATTIO_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  data: {\n    values: {\n      email_addresses: [{ email_address: $('Extract Lead Data').first().json.lead.email }],\n      name: [{ first_name: $('Extract Lead Data').first().json.lead.name.split(' ')[0], last_name: $('Extract Lead Data').first().json.lead.name.split(' ').slice(1).join(' ') || '' }],\n      company: [{ value: $('Extract Lead Data').first().json.lead.company }],\n      job_title: [{ value: $('Extract Lead Data').first().json.lead.title }],\n      linkedin: [{ value: $('Extract Lead Data').first().json.lead.linkedin_url }],\n      source: [{ value: 'GTM Ops - Category A' }],\n      status: [{ value: 'New Reply' }],\n      reply_channel: [{ value: $('Extract Lead Data').first().json.context.source }],\n      campaign: [{ value: $('Extract Lead Data').first().json.context.campaign_name }],\n      classification_confidence: [{ value: $('Extract Lead Data').first().json.classification.confidence }]\n    }\n  },\n  matching_attribute: 'email_addresses'\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "create-attio-record",
+      "name": "Create/Update Attio Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-tier-1",
+              "leftValue": "={{ $('Extract Lead Data').first().json.classification.tier }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-auto-send",
+      "name": "Auto-Send Calendar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.INSTANTLY_API_URL || 'https://api.instantly.ai/api/v2' }}/emails/send",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.INSTANTLY_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  to: $('Extract Lead Data').first().json.lead.email,\n  subject: 'Re: Let\\'s Connect',\n  body: 'Hi ' + ($('Extract Lead Data').first().json.lead.name.split(' ')[0] || 'there') + ',\\n\\nThanks for your interest! I\\'d love to find a time that works for both of us.\\n\\nHere\\'s my calendar link: ' + ($env.CALENDLY_LINK || 'https://calendly.com/yourlink') + '\\n\\nLooking forward to connecting!\\n\\nBest,\\n' + ($env.SENDER_NAME || 'Team'),\n  campaign_id: $('Extract Lead Data').first().json.context.campaign_id\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "send-calendar-link",
+      "name": "Send Calendar Link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1300, 100],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-email-source",
+              "leftValue": "={{ $('Extract Lead Data').first().json.context.source }}",
+              "rightValue": "email",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-add-linkedin",
+      "name": "Add to LinkedIn?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1500, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HEYREACH_API_URL || 'https://api.heyreach.io/api/public/v2' }}/leads/add-to-campaign",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-KEY",
+              "value": "={{ $env.HEYREACH_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  campaign_id: $env.HEYREACH_LINKEDIN_CAMPAIGN_ID,\n  leads: [{\n    linkedin_url: $('Extract Lead Data').first().json.lead.linkedin_url,\n    first_name: $('Extract Lead Data').first().json.lead.name.split(' ')[0],\n    last_name: $('Extract Lead Data').first().json.lead.name.split(' ').slice(1).join(' ') || '',\n    company: $('Extract Lead Data').first().json.lead.company,\n    title: $('Extract Lead Data').first().json.lead.title\n  }]\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "add-to-linkedin",
+      "name": "Add to LinkedIn Campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1700, 100],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_INTERESTED_LEADS_CHANNEL || '#interested-leads' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"header\", \"text\": { \"type\": \"plain_text\", \"text\": \"🎯 Category A Lead Processed\", \"emoji\": true } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Lead:* \" + $('Extract Lead Data').first().json.lead.name + \"\\n*Company:* \" + ($('Extract Lead Data').first().json.lead.company || 'N/A') + \"\\n*Title:* \" + ($('Extract Lead Data').first().json.lead.title || 'N/A') + \"\\n*Email:* \" + ($('Extract Lead Data').first().json.lead.email || 'N/A') } },\n  { \"type\": \"section\", \"fields\": [\n    { \"type\": \"mrkdwn\", \"text\": \"*Intent:*\\n\" + $('Extract Lead Data').first().json.classification.intent },\n    { \"type\": \"mrkdwn\", \"text\": \"*Confidence:*\\n\" + Math.round($('Extract Lead Data').first().json.classification.confidence * 100) + \"%\" },\n    { \"type\": \"mrkdwn\", \"text\": \"*Tier:*\\n\" + $('Extract Lead Data').first().json.classification.tier },\n    { \"type\": \"mrkdwn\", \"text\": \"*Source:*\\n\" + $('Extract Lead Data').first().json.context.source }\n  ]},\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Actions Taken:*\\n• ✅ Airtable updated to 'Interested'\\n• ✅ Attio record created/updated\\n• \" + ($('Extract Lead Data').first().json.classification.tier === 1 ? \"✅ Calendar link sent\" : \"⏳ Awaiting approval to send calendar\") + \"\\n• \" + ($('Extract Lead Data').first().json.context.source === 'email' ? \"✅ Added to LinkedIn campaign\" : \"➖ N/A (source: LinkedIn)\") } },\n  { \"type\": \"divider\" },\n  { \"type\": \"context\", \"elements\": [{ \"type\": \"mrkdwn\", \"text\": \"Reply ID: \" + ($('Extract Lead Data').first().json.context.reply_id || 'N/A') + \" | Campaign: \" + ($('Extract Lead Data').first().json.context.campaign_name || 'N/A') + \" | \" + new Date().toISOString() }] }\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-success",
+      "name": "Slack Success Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1900, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all action results\nconst leadData = $('Extract Lead Data').first().json;\nconst airtableResult = $('Update Airtable').first()?.json || { error: 'skipped' };\nconst attioResult = $('Create/Update Attio Record').first()?.json || { error: 'skipped' };\n\nreturn [{\n  json: {\n    success: true,\n    category: 'A',\n    lead: {\n      name: leadData.lead.name,\n      email: leadData.lead.email,\n      company: leadData.lead.company\n    },\n    actions: {\n      airtable_updated: !airtableResult.error,\n      attio_created: !attioResult.error,\n      calendar_sent: leadData.classification.tier === 1,\n      linkedin_added: leadData.context.source === 'email'\n    },\n    classification: leadData.classification,\n    processed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2100, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2300, 200]
+    }
+  ],
+  "connections": {
+    "Category A Webhook": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Extract Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Failed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Update Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Airtable": {
+      "main": [
+        [
+          {
+            "node": "Create/Update Attio Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create/Update Attio Record": {
+      "main": [
+        [
+          {
+            "node": "Auto-Send Calendar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-Send Calendar?": {
+      "main": [
+        [
+          {
+            "node": "Send Calendar Link",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to LinkedIn?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Calendar Link": {
+      "main": [
+        [
+          {
+            "node": "Add to LinkedIn?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to LinkedIn?": {
+      "main": [
+        [
+          {
+            "node": "Add to LinkedIn Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Success Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to LinkedIn Campaign": {
+      "main": [
+        [
+          {
+            "node": "Slack Success Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Success Notification": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "atlas-gtm-category-a-workflow"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "category-a"
+    },
+    {
+      "name": "interested-leads"
+    },
+    {
+      "name": "reply-handling"
+    },
+    {
+      "name": "atlas-gtm"
+    }
+  ],
+  "pinData": {},
+  "notes": [
+    {
+      "id": "note-1",
+      "content": "## Category A - Interested Lead Workflow v1.0\n\n### Purpose\nProcess interested leads (Category A) through the full engagement pipeline:\n1. Update Airtable status to \"Interested\"\n2. Create/update Attio CRM record with \"New Reply\" stage\n3. Send calendar link (Tier 1 only)\n4. Add to LinkedIn campaign (email respondents only)\n5. Notify Slack\n\n### Environment Variables Required\n- `CATEGORY_WORKFLOW_SECRET`: Secret for authenticating workflow requests\n- `AIRTABLE_API_URL`: Airtable API base URL\n- `AIRTABLE_BASE_ID`: Airtable base ID\n- `ATTIO_API_URL`: Attio API URL (default: https://api.attio.com/v2)\n- `ATTIO_API_KEY`: Attio API key\n- `INSTANTLY_API_URL`: Instantly API URL (default: https://api.instantly.ai/api/v2)\n- `INSTANTLY_API_KEY`: Instantly API key\n- `HEYREACH_API_URL`: HeyReach API URL\n- `HEYREACH_API_KEY`: HeyReach API key\n- `HEYREACH_LINKEDIN_CAMPAIGN_ID`: LinkedIn connection campaign ID\n- `CALENDLY_LINK`: Your Calendly booking link\n- `SENDER_NAME`: Name to use in email signature\n- `SLACK_INTERESTED_LEADS_CHANNEL`: Slack channel (default: #interested-leads)\n\n### Input Payload\n```json\n{\n  \"lead\": {\n    \"email\": \"john@example.com\",\n    \"name\": \"John Doe\",\n    \"company\": \"Acme Corp\",\n    \"title\": \"VP Engineering\",\n    \"linkedin_url\": \"https://linkedin.com/in/johndoe\",\n    \"airtable_id\": \"rec123\"\n  },\n  \"classification\": {\n    \"intent\": \"positive_interest\",\n    \"confidence\": 0.92,\n    \"tier\": 1\n  },\n  \"routing\": {\n    \"tier\": 1\n  },\n  \"campaign\": {\n    \"id\": \"camp_456\",\n    \"name\": \"Q1 Outreach\"\n  },\n  \"source\": \"email\",\n  \"reply_id\": \"rpl_789\",\n  \"reply\": {\n    \"body\": \"Yes, I would love to learn more!\"\n  },\n  \"brain_id\": \"brain_fintech\"\n}\n```\n\n### Tier Logic\n- **Tier 1**: Auto-send calendar link immediately\n- **Tier 2/3**: Skip auto-send, notify Slack for manual action\n\n### LinkedIn Addition Logic\n- Only adds to LinkedIn campaign if source is \"email\"\n- Skips if lead already came from LinkedIn\n\n### Error Handling\n- All external API calls use `continueOnFail: true`\n- Failures are logged but don't stop the workflow\n- Slack notification includes action status\n\n### Test with curl\n```bash\ncurl -X POST http://localhost:5678/webhook/category-a \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $CATEGORY_WORKFLOW_SECRET\" \\\n  -d '{\"lead\":{\"email\":\"test@example.com\",\"name\":\"Test User\",\"company\":\"Test Co\"},\"classification\":{\"intent\":\"positive_interest\",\"confidence\":0.9,\"tier\":1},\"source\":\"email\"}'\n```",
+      "position": [100, 500]
+    }
+  ]
+}

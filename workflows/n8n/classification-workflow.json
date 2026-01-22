@@ -1,0 +1,345 @@
+{
+  "name": "Reply Classification Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "classify-reply",
+        "authentication": "headerAuth",
+        "options": {
+          "rawBody": false
+        },
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "Classification Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 300],
+      "webhookId": "classify-reply"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-secret",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.CLASSIFICATION_WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'AUTH_FAILED', message: 'Invalid webhook secret' } }) }}",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "auth-failed-response",
+      "name": "Auth Failed Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [500, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate and normalize incoming classification request\nconst body = $input.first().json.body;\n\n// Validate required fields\nif (!body.reply?.body) {\n  throw new Error('Missing required field: reply.body (the message content)');\n}\n\n// Normalize the classification request\nconst classificationRequest = {\n  reply: {\n    id: body.reply.id || `rpl_${Date.now()}`,\n    content: body.reply.body,\n    subject: body.reply.subject || null,\n    received_at: body.reply.received_at || new Date().toISOString(),\n    channel: body.channel || body.source || 'email'\n  },\n  lead: {\n    email: body.lead?.email || body.reply?.from_email || null,\n    name: body.lead?.name || body.reply?.lead_name || 'Unknown',\n    company: body.lead?.company || body.reply?.company || null,\n    title: body.lead?.title || body.reply?.title || null,\n    linkedin_url: body.lead?.linkedin_url || body.reply?.lead_linkedin_url || null\n  },\n  campaign: {\n    id: body.campaign?.id || body.campaign_id || null,\n    name: body.campaign?.name || null,\n    sequence_step: body.campaign?.sequence_step || body.reply?.sequence_step || 1\n  },\n  context: {\n    brain_id: body.brain_id || $env.DEFAULT_BRAIN_ID || 'default',\n    conversation_history: body.conversation_history || [],\n    previous_interactions: body.previous_interactions || 0\n  }\n};\n\nreturn [{ json: classificationRequest }];"
+      },
+      "id": "normalize-request",
+      "name": "Normalize Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.REPLY_HANDLER_URL || 'http://localhost:3002' }}/webhook/classify",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.CLASSIFICATION_WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "call-classifier",
+      "name": "Call Classifier Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-classifier-success",
+      "name": "Classifier Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enrich classification result with derived fields\nconst classifierResult = $input.first().json;\nconst originalRequest = $('Normalize Request').first().json;\n\n// Map intent to A/B/C category\nfunction intentToCategory(intent) {\n  switch (intent) {\n    case 'positive_interest':\n      return 'A';\n    case 'unsubscribe':\n    case 'not_interested':\n    case 'out_of_office':\n    case 'bounce':\n      return 'B';\n    case 'question':\n    case 'objection':\n    case 'referral':\n    case 'unclear':\n    default:\n      return 'C';\n  }\n}\n\n// Derive tier from category and complexity\nfunction deriveTier(category, complexity, confidence) {\n  if (confidence < 0.7) return 3; // Low confidence always needs review\n  if (category === 'A' && complexity === 'simple') return 1;\n  if (category === 'B') return 1; // Auto-DNC\n  if (complexity === 'complex' || category === 'C') return 3;\n  return 2; // Default to approval tier\n}\n\nconst classification = classifierResult.classification || {};\nconst intent = classification.intent || 'unclear';\nconst category = intentToCategory(intent);\nconst confidence = classification.confidence || 0.5;\nconst complexity = classification.complexity || 'medium';\n\n// Calculate effective category (low confidence routes to C)\nconst effectiveCategory = confidence < 0.7 ? 'C' : category;\nconst tier = deriveTier(effectiveCategory, complexity, confidence);\n\n// Derive urgency\nfunction deriveUrgency(intent, category) {\n  if (intent === 'positive_interest') return 'high';\n  if (category === 'B') return 'low';\n  if (intent === 'question' || intent === 'objection') return 'medium';\n  return 'medium';\n}\n\nreturn [{\n  json: {\n    success: true,\n    classification: {\n      intent,\n      category,\n      effective_category: effectiveCategory,\n      confidence,\n      complexity,\n      is_auto_reply: classification.is_auto_reply || false,\n      sentiment: classification.sentiment || 'neutral',\n      key_topics: classification.key_topics || [],\n      urgency: deriveUrgency(intent, category)\n    },\n    routing: {\n      tier,\n      action_type: tier === 1 ? 'auto_response' : (tier === 2 ? 'draft_approval' : 'escalation'),\n      requires_human_review: tier === 3 || effectiveCategory === 'C'\n    },\n    lead: originalRequest.lead,\n    campaign: originalRequest.campaign,\n    metadata: {\n      classified_at: new Date().toISOString(),\n      brain_id: originalRequest.context.brain_id,\n      model_version: classification.model_version || 'claude-sonnet-4-20250514'\n    }\n  }\n}];"
+      },
+      "id": "enrich-classification",
+      "name": "Enrich Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1300, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle classification error with fallback\nconst error = $input.first().json;\nconst originalRequest = $('Normalize Request').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    error: {\n      code: 'CLASSIFICATION_FAILED',\n      message: error.error?.message || 'Classification service unavailable'\n    },\n    fallback_classification: {\n      intent: 'unclear',\n      category: 'C',\n      effective_category: 'C',\n      confidence: 0.0,\n      complexity: 'unknown',\n      is_auto_reply: false,\n      urgency: 'medium'\n    },\n    routing: {\n      tier: 3,\n      action_type: 'escalation',\n      requires_human_review: true,\n      fallback_reason: 'classification_error'\n    },\n    lead: originalRequest.lead,\n    campaign: originalRequest.campaign,\n    metadata: {\n      classified_at: new Date().toISOString(),\n      brain_id: originalRequest.context.brain_id,\n      error_occurred: true\n    }\n  }\n}];"
+      },
+      "id": "handle-error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1300, 300]
+    }
+  ],
+  "connections": {
+    "Classification Webhook": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Normalize Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Failed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Request": {
+      "main": [
+        [
+          {
+            "node": "Call Classifier Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Classifier Agent": {
+      "main": [
+        [
+          {
+            "node": "Classifier Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classifier Success?": {
+      "main": [
+        [
+          {
+            "node": "Enrich Classification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Classification": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Error": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "atlas-gtm-classification-workflow"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "classification"
+    },
+    {
+      "name": "reply-handling"
+    },
+    {
+      "name": "atlas-gtm"
+    },
+    {
+      "name": "reusable"
+    }
+  ],
+  "pinData": {},
+  "notes": [
+    {
+      "id": "note-1",
+      "content": "## Reply Classification Workflow v1.0\n\n### Purpose\nReusable classification workflow that other workflows can invoke for centralized A/B/C category classification.\n\n### A/B/C Category System\n- **Category A** (Interested): positive_interest\n- **Category B** (Not Interested): unsubscribe, not_interested, out_of_office, bounce\n- **Category C** (Manual Review): question, objection, referral, unclear\n\n### Tier Routing Logic\n- **Tier 1** (Auto): Category A simple + high confidence, Category B\n- **Tier 2** (Approval): Category A complex, moderate confidence\n- **Tier 3** (Escalation): Category C, low confidence (<0.7), complex\n\n### Environment Variables Required\n- `CLASSIFICATION_WEBHOOK_SECRET`: Secret for authenticating classification requests\n- `REPLY_HANDLER_URL`: URL of the Reply Handler agent (default: http://localhost:3002)\n- `DEFAULT_BRAIN_ID`: Default brain ID for classification (optional)\n\n### Input Payload Format\n```json\n{\n  \"reply\": {\n    \"id\": \"rpl_123\",\n    \"body\": \"Yes, I would love to learn more about this!\",\n    \"subject\": \"Re: Introduction\",\n    \"received_at\": \"2024-01-15T10:30:00Z\"\n  },\n  \"lead\": {\n    \"email\": \"john@example.com\",\n    \"name\": \"John Doe\",\n    \"company\": \"Acme Corp\",\n    \"title\": \"VP Engineering\"\n  },\n  \"campaign\": {\n    \"id\": \"camp_456\",\n    \"name\": \"Outreach Q1\",\n    \"sequence_step\": 2\n  },\n  \"channel\": \"email\",\n  \"brain_id\": \"brain_fintech\"\n}\n```\n\n### Output Format\n```json\n{\n  \"success\": true,\n  \"classification\": {\n    \"intent\": \"positive_interest\",\n    \"category\": \"A\",\n    \"effective_category\": \"A\",\n    \"confidence\": 0.92,\n    \"complexity\": \"simple\",\n    \"is_auto_reply\": false,\n    \"sentiment\": \"positive\",\n    \"key_topics\": [\"interest\", \"meeting\"],\n    \"urgency\": \"high\"\n  },\n  \"routing\": {\n    \"tier\": 1,\n    \"action_type\": \"auto_response\",\n    \"requires_human_review\": false\n  },\n  \"lead\": { ... },\n  \"campaign\": { ... },\n  \"metadata\": {\n    \"classified_at\": \"2024-01-15T10:30:05Z\",\n    \"brain_id\": \"brain_fintech\",\n    \"model_version\": \"claude-sonnet-4-20250514\"\n  }\n}\n```\n\n### Error Handling\n- Returns fallback classification (Category C, Tier 3) on classifier failure\n- Always returns 200 status to prevent webhook retries\n- Error details included in response for debugging\n\n### Usage from Other Workflows\nCall this workflow via HTTP Request node:\n```\nPOST /webhook/classify-reply\nHeaders:\n  X-Webhook-Secret: $CLASSIFICATION_WEBHOOK_SECRET\n  Content-Type: application/json\nBody: { reply, lead, campaign, channel, brain_id }\n```\n\n### Test with curl\n```bash\ncurl -X POST http://localhost:5678/webhook/classify-reply \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $CLASSIFICATION_WEBHOOK_SECRET\" \\\n  -d '{\"reply\":{\"body\":\"Yes, I would love to learn more!\"},\"channel\":\"email\"}'\n```",
+      "position": [100, 450]
+    }
+  ]
+}

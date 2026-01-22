@@ -167,6 +167,62 @@ export const InstantlyWebhookPayloadSchema = z.object({
 export type InstantlyWebhookPayload = z.infer<typeof InstantlyWebhookPayloadSchema>;
 
 // ===========================================
+// HeyReach Webhook Payload Schema
+// ===========================================
+
+/**
+ * HeyReach webhook payload structure for LinkedIn replies
+ *
+ * HeyReach sends webhooks when leads reply to LinkedIn messages.
+ * The payload includes conversation thread data and lead profile info.
+ */
+export const HeyReachWebhookPayloadSchema = z.object({
+  event: z.literal('message_received'),
+  timestamp: z.string().datetime(),
+
+  // Message data
+  message: z.object({
+    id: z.string(),
+    conversation_id: z.string(),
+    content: z.string(),
+    received_at: z.string().datetime(),
+    sender_urn: z.string(), // LinkedIn URN of sender
+  }),
+
+  // Lead data (LinkedIn profile)
+  lead: z.object({
+    id: z.string(),
+    linkedin_url: z.string().url(),
+    first_name: z.string().optional(),
+    last_name: z.string().optional(),
+    headline: z.string().optional(), // LinkedIn headline (usually contains title)
+    company: z.string().optional(),
+    email: z.string().email().optional(), // May not always be available
+  }),
+
+  // Campaign context
+  campaign: z.object({
+    id: z.string(),
+    name: z.string(),
+    step: z.number().int().positive().optional(),
+    last_sent_template: z.string().optional(),
+  }),
+
+  // List context
+  list: z
+    .object({
+      id: z.string(),
+      name: z.string(),
+    })
+    .optional(),
+
+  // Account context
+  sender_account_id: z.string(),
+});
+
+export type HeyReachWebhookPayload = z.infer<typeof HeyReachWebhookPayloadSchema>;
+
+// ===========================================
 // Helper Functions
 // ===========================================
 
@@ -196,6 +252,43 @@ export function webhookToReplyInput(
     lead_title: payload.lead.title,
     campaign_id: payload.campaign.id,
     sequence_step: payload.campaign.sequence_step,
+    last_sent_template: payload.campaign.last_sent_template,
+    brain_id: brainId,
+  };
+}
+
+/**
+ * Convert HeyReach webhook payload to ReplyInput
+ *
+ * HeyReach is used for LinkedIn outreach, so the source is 'linkedin'.
+ * Lead email may not be available from LinkedIn profiles.
+ */
+export function heyreachWebhookToReplyInput(
+  payload: HeyReachWebhookPayload,
+  brainId: string,
+  threadMessages: ThreadMessage[] = []
+): ReplyInput {
+  // Generate a placeholder email if not available (LinkedIn doesn't always provide email)
+  // Format: linkedin-{lead_id}@placeholder.local
+  const leadEmail =
+    payload.lead.email ?? `linkedin-${payload.lead.id.replace(/\W/g, '')}@placeholder.local`;
+
+  return {
+    reply_id: payload.message.id,
+    source: 'linkedin',
+    received_at: payload.message.received_at,
+    reply_text: payload.message.content,
+    subject: undefined, // LinkedIn messages don't have subjects
+    thread_id: payload.message.conversation_id,
+    thread_messages: threadMessages,
+    message_count: threadMessages.length + 1,
+    lead_id: payload.lead.id,
+    lead_email: leadEmail,
+    lead_name: [payload.lead.first_name, payload.lead.last_name].filter(Boolean).join(' ') || undefined,
+    lead_company: payload.lead.company,
+    lead_title: payload.lead.headline, // LinkedIn headline often contains title
+    campaign_id: payload.campaign.id,
+    sequence_step: payload.campaign.step,
     last_sent_template: payload.campaign.last_sent_template,
     brain_id: brainId,
   };

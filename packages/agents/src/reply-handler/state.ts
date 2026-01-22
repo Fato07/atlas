@@ -3,6 +3,7 @@
  *
  * Manages session state persistence for the reply handler agent.
  * State is saved to state/reply-handler-state.json for session continuity.
+ * Uses Zod validation when loading state to ensure data integrity (T046).
  *
  * @module reply-handler/state
  */
@@ -19,6 +20,7 @@ import type {
   DraftStatus,
 } from './types';
 import type { Classification, ExtractedInsight, LeadContext } from './contracts';
+import { safeParseState } from './contracts';
 
 // ===========================================
 // Constants
@@ -65,6 +67,9 @@ export class ReplyHandlerStateManager {
 
   /**
    * Load state from file or create new session
+   *
+   * Uses Zod validation to ensure state data integrity (T046).
+   * Falls back to fresh session on validation failure.
    */
   async load(): Promise<void> {
     if (!existsSync(this.statePath)) {
@@ -74,12 +79,24 @@ export class ReplyHandlerStateManager {
 
     try {
       const content = await readFile(this.statePath, 'utf-8');
-      const loadedState = JSON.parse(content) as ReplyHandlerState;
+      const parsed = JSON.parse(content);
+
+      // Validate state with Zod schema (T046 requirement)
+      const result = safeParseState(parsed);
+      if (!result.success || !result.data) {
+        console.warn(
+          'State file failed validation, starting fresh session:',
+          result.error?.issues.map((i) => i.message).join(', ')
+        );
+        return;
+      }
+
+      const loadedState = result.data;
 
       // Validate brain_id matches
       if (loadedState.brain_id === this.state.brain_id) {
-        // Resume existing session
-        this.state = loadedState;
+        // Resume existing session - cast through unknown to handle type differences
+        this.state = loadedState as unknown as ReplyHandlerState;
       }
       // Different brain_id means new session for different vertical
     } catch (error) {

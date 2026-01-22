@@ -1,0 +1,549 @@
+{
+  "name": "Category B - Not Interested Lead Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "category-b",
+        "authentication": "headerAuth",
+        "options": {
+          "rawBody": false
+        },
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "Category B Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 300],
+      "webhookId": "category-b"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-secret",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.CATEGORY_WORKFLOW_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: { code: 'AUTH_FAILED', message: 'Invalid webhook secret' } }) }}",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "auth-failed-response",
+      "name": "Auth Failed Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [500, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate and extract Category B lead data\nconst body = $input.first().json.body;\n\nif (!body.lead) {\n  throw new Error('Missing required field: lead');\n}\n\nconst lead = {\n  email: body.lead.email || null,\n  name: body.lead.name || 'Unknown',\n  company: body.lead.company || null,\n  title: body.lead.title || null,\n  linkedin_url: body.lead.linkedin_url || null,\n  airtable_id: body.lead.airtable_id || null\n};\n\nconst classification = {\n  intent: body.classification?.intent || 'not_interested',\n  category: 'B',\n  confidence: body.classification?.confidence || 0.9,\n  is_auto_reply: body.classification?.is_auto_reply || false,\n  is_referral: body.classification?.intent === 'referral'\n};\n\n// Extract referral info if present\nconst referral = {\n  has_referral: false,\n  referred_name: null,\n  referred_email: null,\n  referred_linkedin: null\n};\n\n// Check for referral patterns in the message\nconst messageBody = body.reply?.body || '';\nif (classification.is_referral || messageBody.toLowerCase().includes('speak to') || messageBody.toLowerCase().includes('contact my colleague') || messageBody.toLowerCase().includes('reach out to')) {\n  referral.has_referral = true;\n  // Extract email from message if present\n  const emailMatch = messageBody.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/g);\n  if (emailMatch) {\n    referral.referred_email = emailMatch[0];\n  }\n}\n\nconst context = {\n  reply_id: body.reply_id || null,\n  campaign_id: body.campaign?.id || null,\n  campaign_name: body.campaign?.name || null,\n  source: body.source || 'email',\n  brain_id: body.brain_id || $env.DEFAULT_BRAIN_ID || 'default',\n  message_preview: messageBody.substring(0, 300)\n};\n\nreturn [{ json: { lead, classification, referral, context, original_body: body } }];"
+      },
+      "id": "extract-lead-data",
+      "name": "Extract Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.AIRTABLE_API_URL || 'https://api.airtable.com/v0' }}/{{ $env.AIRTABLE_BASE_ID }}/Leads",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  records: [{\n    fields: {\n      \"Status\": \"Do Not Contact\",\n      \"Category\": \"B\",\n      \"Intent\": $json.classification.intent,\n      \"Confidence Score\": $json.classification.confidence,\n      \"DNC Date\": new Date().toISOString(),\n      \"DNC Reason\": $json.classification.intent === 'unsubscribe' ? 'Unsubscribe Request' : ($json.classification.is_auto_reply ? 'Auto-Reply (OOO/Bounce)' : 'Not Interested'),\n      \"Reply Channel\": $json.context.source,\n      \"Campaign\": $json.context.campaign_name,\n      \"Notes\": \"Auto-classified as Category B (Not Interested) on \" + new Date().toISOString() + \". Reason: \" + $json.classification.intent\n    },\n    id: $json.lead.airtable_id\n  }]\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "update-airtable-dnc",
+      "name": "Update Airtable (DNC)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-source-email",
+              "leftValue": "={{ $('Extract Lead Data').first().json.context.source }}",
+              "rightValue": "email",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-stop-instantly",
+      "name": "Stop Instantly Campaign?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.INSTANTLY_API_URL || 'https://api.instantly.ai/api/v2' }}/leads/update-status",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.INSTANTLY_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  email: $('Extract Lead Data').first().json.lead.email,\n  campaign_id: $('Extract Lead Data').first().json.context.campaign_id,\n  status: 'unsubscribed'\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "stop-instantly",
+      "name": "Stop Instantly Campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 100],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-source-linkedin",
+              "leftValue": "={{ $('Extract Lead Data').first().json.context.source }}",
+              "rightValue": "linkedin",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-stop-heyreach",
+      "name": "Stop HeyReach Campaign?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1300, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HEYREACH_API_URL || 'https://api.heyreach.io/api/public/v2' }}/leads/update-status",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-KEY",
+              "value": "={{ $env.HEYREACH_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  linkedin_url: $('Extract Lead Data').first().json.lead.linkedin_url,\n  status: 'do_not_contact'\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "stop-heyreach",
+      "name": "Stop HeyReach Campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1500, 100],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-has-referral",
+              "leftValue": "={{ $('Extract Lead Data').first().json.referral.has_referral }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-referral",
+      "name": "Has Referral?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1700, 200]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_REFERRALS_CHANNEL || '#referrals' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"header\", \"text\": { \"type\": \"plain_text\", \"text\": \"🔄 Referral Detected in Category B Reply\", \"emoji\": true } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Original Lead:* \" + $('Extract Lead Data').first().json.lead.name + \"\\n*Company:* \" + ($('Extract Lead Data').first().json.lead.company || 'N/A') + \"\\n*Email:* \" + ($('Extract Lead Data').first().json.lead.email || 'N/A') } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Message (may contain referral info):*\\n> \" + $('Extract Lead Data').first().json.context.message_preview } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Detected Referral Email:* \" + ($('Extract Lead Data').first().json.referral.referred_email || 'Not detected - please review message') } },\n  { \"type\": \"divider\" },\n  { \"type\": \"actions\", \"elements\": [\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"✅ Add Referral to Campaign\", \"emoji\": true }, \"style\": \"primary\", \"action_id\": \"add_referral\", \"value\": JSON.stringify({ lead_email: $('Extract Lead Data').first().json.lead.email, referred_email: $('Extract Lead Data').first().json.referral.referred_email, action: 'add_referral' }) },\n    { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"❌ Ignore Referral\", \"emoji\": true }, \"action_id\": \"ignore_referral\", \"value\": JSON.stringify({ lead_email: $('Extract Lead Data').first().json.lead.email, action: 'ignore_referral' }) }\n  ]},\n  { \"type\": \"context\", \"elements\": [{ \"type\": \"mrkdwn\", \"text\": \"Reply ID: \" + ($('Extract Lead Data').first().json.context.reply_id || 'N/A') + \" | \" + new Date().toISOString() }] }\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-referral",
+      "name": "Slack Referral Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1900, 100],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_DNC_CHANNEL || '#dnc-list' }}",
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  { \"type\": \"header\", \"text\": { \"type\": \"plain_text\", \"text\": \"🚫 Category B Lead Processed (DNC)\", \"emoji\": true } },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Lead:* \" + $('Extract Lead Data').first().json.lead.name + \"\\n*Company:* \" + ($('Extract Lead Data').first().json.lead.company || 'N/A') + \"\\n*Email:* \" + ($('Extract Lead Data').first().json.lead.email || 'N/A') } },\n  { \"type\": \"section\", \"fields\": [\n    { \"type\": \"mrkdwn\", \"text\": \"*Intent:*\\n\" + $('Extract Lead Data').first().json.classification.intent },\n    { \"type\": \"mrkdwn\", \"text\": \"*Auto-Reply:*\\n\" + ($('Extract Lead Data').first().json.classification.is_auto_reply ? 'Yes' : 'No') },\n    { \"type\": \"mrkdwn\", \"text\": \"*Source:*\\n\" + $('Extract Lead Data').first().json.context.source },\n    { \"type\": \"mrkdwn\", \"text\": \"*Referral:*\\n\" + ($('Extract Lead Data').first().json.referral.has_referral ? 'Yes (see #referrals)' : 'No') }\n  ]},\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Actions Taken:*\\n• ✅ Airtable updated to 'Do Not Contact'\\n• \" + ($('Extract Lead Data').first().json.context.source === 'email' ? \"✅ Instantly campaign stopped\" : \"✅ HeyReach campaign stopped\") } },\n  { \"type\": \"divider\" },\n  { \"type\": \"context\", \"elements\": [{ \"type\": \"mrkdwn\", \"text\": \"Reply ID: \" + ($('Extract Lead Data').first().json.context.reply_id || 'N/A') + \" | Campaign: \" + ($('Extract Lead Data').first().json.context.campaign_name || 'N/A') + \" | \" + new Date().toISOString() }] }\n]) }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "slack-dnc",
+      "name": "Slack DNC Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1900, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIALS_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all action results\nconst leadData = $('Extract Lead Data').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    category: 'B',\n    lead: {\n      name: leadData.lead.name,\n      email: leadData.lead.email,\n      company: leadData.lead.company\n    },\n    actions: {\n      airtable_dnc: true,\n      instantly_stopped: leadData.context.source === 'email',\n      heyreach_stopped: leadData.context.source === 'linkedin',\n      referral_detected: leadData.referral.has_referral\n    },\n    classification: leadData.classification,\n    referral: leadData.referral,\n    processed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2100, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2300, 200]
+    }
+  ],
+  "connections": {
+    "Category B Webhook": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Extract Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Failed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Update Airtable (DNC)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Airtable (DNC)": {
+      "main": [
+        [
+          {
+            "node": "Stop Instantly Campaign?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stop Instantly Campaign?": {
+      "main": [
+        [
+          {
+            "node": "Stop Instantly Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Stop HeyReach Campaign?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stop Instantly Campaign": {
+      "main": [
+        [
+          {
+            "node": "Check Stop HeyReach Campaign?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Stop HeyReach Campaign?": {
+      "main": [
+        [
+          {
+            "node": "Stop HeyReach Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Has Referral?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stop HeyReach Campaign": {
+      "main": [
+        [
+          {
+            "node": "Has Referral?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Referral?": {
+      "main": [
+        [
+          {
+            "node": "Slack Referral Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack DNC Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Referral Notification": {
+      "main": [
+        [
+          {
+            "node": "Slack DNC Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack DNC Notification": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "atlas-gtm-category-b-workflow"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "category-b"
+    },
+    {
+      "name": "dnc"
+    },
+    {
+      "name": "not-interested"
+    },
+    {
+      "name": "reply-handling"
+    },
+    {
+      "name": "atlas-gtm"
+    }
+  ],
+  "pinData": {},
+  "notes": [
+    {
+      "id": "note-1",
+      "content": "## Category B - Not Interested Lead Workflow v1.0\n\n### Purpose\nProcess not interested leads (Category B) through the DNC pipeline:\n1. Update Airtable status to \"Do Not Contact\"\n2. Stop Instantly campaign (if email source)\n3. Stop HeyReach campaign (if LinkedIn source)\n4. Detect and notify referrals\n5. Notify Slack #dnc-list\n\n### Intents Handled\n- `unsubscribe`: Explicit unsubscribe request\n- `not_interested`: Explicit rejection\n- `out_of_office`: Auto-reply (OOO)\n- `bounce`: Email delivery failure\n- `referral`: Redirect to another person (also notifies #referrals)\n\n### Environment Variables Required\n- `CATEGORY_WORKFLOW_SECRET`: Secret for authenticating workflow requests\n- `AIRTABLE_API_URL`: Airtable API base URL\n- `AIRTABLE_BASE_ID`: Airtable base ID\n- `INSTANTLY_API_URL`: Instantly API URL\n- `INSTANTLY_API_KEY`: Instantly API key\n- `HEYREACH_API_URL`: HeyReach API URL\n- `HEYREACH_API_KEY`: HeyReach API key\n- `SLACK_DNC_CHANNEL`: Slack channel for DNC (default: #dnc-list)\n- `SLACK_REFERRALS_CHANNEL`: Slack channel for referrals (default: #referrals)\n\n### Input Payload\n```json\n{\n  \"lead\": {\n    \"email\": \"john@example.com\",\n    \"name\": \"John Doe\",\n    \"company\": \"Acme Corp\",\n    \"linkedin_url\": \"https://linkedin.com/in/johndoe\",\n    \"airtable_id\": \"rec123\"\n  },\n  \"classification\": {\n    \"intent\": \"not_interested\",\n    \"confidence\": 0.95,\n    \"is_auto_reply\": false\n  },\n  \"campaign\": {\n    \"id\": \"camp_456\",\n    \"name\": \"Q1 Outreach\"\n  },\n  \"source\": \"email\",\n  \"reply_id\": \"rpl_789\",\n  \"reply\": {\n    \"body\": \"No thanks, we're not interested at this time.\"\n  }\n}\n```\n\n### Referral Detection\n- Automatically detects referral patterns in message body\n- Extracts referred email if present\n- Notifies #referrals channel with action buttons\n- Patterns: \"speak to\", \"contact my colleague\", \"reach out to\"\n\n### Cross-Channel DNC\n- Stops campaigns on both Instantly (email) and HeyReach (LinkedIn)\n- Uses source field to determine primary channel\n- Ensures lead is stopped across all channels\n\n### Test with curl\n```bash\ncurl -X POST http://localhost:5678/webhook/category-b \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $CATEGORY_WORKFLOW_SECRET\" \\\n  -d '{\"lead\":{\"email\":\"test@example.com\",\"name\":\"Test User\",\"company\":\"Test Co\"},\"classification\":{\"intent\":\"not_interested\",\"confidence\":0.95},\"source\":\"email\"}'\n```",
+      "position": [100, 500]
+    }
+  ]
+}

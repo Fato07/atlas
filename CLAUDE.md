@@ -10,6 +10,20 @@ Atlas GTM is an AI-first GTM Operations System for CodesDevs. It uses swappable 
 
 **Key Architecture Concept**: Same agents, different "brains" (KB contexts) for rapid multi-vertical market validation.
 
+### Three-System Architecture
+
+| System | Role | Analogy | What It Stores |
+|--------|------|---------|----------------|
+| **KB (Qdrant)** | System-level intelligence | **"Brain"** | ICP definitions, objection patterns, response templates, messaging insights |
+| **Airtable** | Lead data hub | **"Hands"** | Per-lead scoring columns, enrichment data, status, routing decisions |
+| **Attio CRM** | Pipeline visibility | **"Eyes"** | Engaged leads only (Category A), pipeline stages, deal tracking |
+
+**Critical Distinction**:
+- **KB is NOT for**: Individual lead scoring, per-lead enrichment, lead routing decisions
+- **KB IS for**: "What is our ICP definition?", "How did we handle similar objections?", "What patterns are we seeing?"
+
+See `docs/architecture/data-flow.md` and `specs/knowledge-base.md` for details.
+
 ## Core Principles
 
 ### 1. Spec-Driven Development
@@ -319,6 +333,8 @@ Workflow files location: `workflows/n8n/`
 - N/A (stateless MCP server - data stored in HeyReach SaaS) (012-heyreach-mcp-server)
 - TypeScript 5.4+ (Bun runtime) for agents/lib, Python 3.11+ for MCP servers + @anthropic-ai/sdk, @qdrant/js-client-rest, FastMCP ≥0.4.0, Zod, structlog (014-multi-vertical-brain-swap)
 - Qdrant (verticals collection), Upstash Redis (classification cache) (014-multi-vertical-brain-swap)
+- TypeScript 5.4+ (Bun runtime) for agents, Python 3.11+ for MCP servers + @anthropic-ai/sdk, @qdrant/js-client-rest, @slack/web-api, Zod, FastMCP ≥0.4.0, httpx, tenacity (015-gtm-ops-workflows)
+- Qdrant (vector collections: icp_rules, bucket_c_patterns, objection_handlers), Airtable (lead database), Attio (CRM), Upstash Redis (caching) (015-gtm-ops-workflows)
 
 ## Recent Changes
 - 011-instantly-mcp-upgrade + 012-heyreach-mcp-server: Production-ready MCP servers for email outreach (Instantly v2 API) and LinkedIn automation (HeyReach API). Instantly upgraded from 7 to 38 tools with v2 API, retry logic (tenacity), and structured logging. HeyReach new implementation with 35 tools for campaigns, inbox, accounts, lists, leads, stats, and webhooks. Both have comprehensive test suites (164 tests total).

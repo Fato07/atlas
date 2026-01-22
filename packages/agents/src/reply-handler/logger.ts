@@ -1,9 +1,10 @@
 /**
  * Reply Handler Agent - Structured Logger
  *
- * Implements structured JSON logging per FR-029 with all required event types.
+ * Implements structured JSON logging per FR-029 and T045 with all required event types.
  * Events include: reply_received, reply_classified, reply_routed, response_sent,
- * approval_requested, approval_resolved, crm_updated, insight_extracted, processing_error.
+ * approval_requested, approval_resolved, crm_updated, insight_extracted, processing_error,
+ * channels_stopped, workflow_complete, workflow_failed.
  *
  * @module reply-handler/logger
  */
@@ -20,6 +21,9 @@ import type {
   CRMUpdatedEvent,
   InsightExtractedEvent,
   ProcessingErrorEvent,
+  ChannelsStoppedEvent,
+  WorkflowCompleteEvent,
+  WorkflowFailedEvent,
 } from './types';
 
 // ===========================================
@@ -377,6 +381,97 @@ export class ReplyHandlerLogger {
       error_message: params.error_message,
       recoverable: params.recoverable,
       retry_count: params.retry_count,
+    };
+
+    this.output('error', event);
+  }
+
+  /**
+   * Log channels_stopped event (T045)
+   * For DNC processing when stopping Instantly/HeyReach campaigns
+   */
+  channelsStopped(params: {
+    reply_id: string;
+    lead_id: string;
+    brain_id: string;
+    channels: {
+      instantly_stopped: boolean;
+      heyreach_stopped: boolean;
+    };
+    reason: 'unsubscribe' | 'not_interested' | 'bounce' | 'out_of_office' | 'manual';
+    campaign_ids?: string[];
+  }): void {
+    const event: ChannelsStoppedEvent = {
+      event: 'channels_stopped',
+      timestamp: new Date().toISOString(),
+      reply_id: params.reply_id,
+      lead_id: params.lead_id,
+      brain_id: params.brain_id,
+      channels: params.channels,
+      reason: params.reason,
+      campaign_ids: params.campaign_ids,
+    };
+
+    this.output('info', event);
+  }
+
+  /**
+   * Log workflow_complete event (T045)
+   * When a category workflow completes successfully
+   */
+  workflowComplete(params: {
+    reply_id: string;
+    lead_id: string;
+    brain_id: string;
+    category: 'A' | 'B' | 'C';
+    duration_ms: number;
+    actions_completed: string[];
+    notifications_sent: number;
+  }): void {
+    const event: WorkflowCompleteEvent = {
+      event: 'workflow_complete',
+      timestamp: new Date().toISOString(),
+      reply_id: params.reply_id,
+      lead_id: params.lead_id,
+      brain_id: params.brain_id,
+      category: params.category,
+      duration_ms: params.duration_ms,
+      actions_completed: params.actions_completed,
+      notifications_sent: params.notifications_sent,
+    };
+
+    this.output('info', event);
+  }
+
+  /**
+   * Log workflow_failed event (T045)
+   * When a category workflow fails
+   */
+  workflowFailed(params: {
+    reply_id: string;
+    lead_id: string;
+    brain_id: string;
+    category: 'A' | 'B' | 'C';
+    duration_ms: number;
+    failed_step: string;
+    error_code: string;
+    error_message: string;
+    partial_completion: boolean;
+    actions_completed: string[];
+  }): void {
+    const event: WorkflowFailedEvent = {
+      event: 'workflow_failed',
+      timestamp: new Date().toISOString(),
+      reply_id: params.reply_id,
+      lead_id: params.lead_id,
+      brain_id: params.brain_id,
+      category: params.category,
+      duration_ms: params.duration_ms,
+      failed_step: params.failed_step,
+      error_code: params.error_code,
+      error_message: params.error_message,
+      partial_completion: params.partial_completion,
+      actions_completed: params.actions_completed,
     };
 
     this.output('error', event);

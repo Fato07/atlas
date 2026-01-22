@@ -38,7 +38,8 @@ export interface EmbedderConfig {
 // ===========================================
 
 const VOYAGE_API_URL = 'https://api.voyageai.com/v1/embeddings';
-const DEFAULT_MODEL = 'voyage-3-lite';
+// voyage-3 produces 1024-dimension vectors, matching our Qdrant collections
+const DEFAULT_MODEL = 'voyage-3';
 const DEFAULT_TIMEOUT = 30000;
 
 // ===========================================

@@ -17,6 +17,12 @@ import type {
   Urgency,
 } from './contracts/handler-result';
 import { CLASSIFICATION_TOOL, type ClassificationResult } from './contracts/classification-tool';
+import {
+  CATEGORY_CLASSIFICATION_TOOL,
+  type ClassificationCategory,
+  type ClassificationResult as CategoryClassificationResult,
+  getEffectiveCategory,
+} from './contracts/classification-result';
 import { parseEmailReply, detectAutoReply, getWordCount } from './email-parser';
 
 // ===========================================
@@ -462,6 +468,190 @@ Use the classify_reply tool to provide your structured analysis.`;
       tokens_used: 0,
     };
   }
+}
+
+// ===========================================
+// A/B/C Category Classification (GTM Operations)
+// ===========================================
+
+/**
+ * Classify a reply into Category A/B/C for GTM operations routing
+ *
+ * Implements FR-003: Classify replies into exactly one of three categories
+ * - Category A: Interested (positive buying signals)
+ * - Category B: Not Interested (negative signals or opt-out)
+ * - Category C: Manual Review (ambiguous, requires human judgment)
+ */
+export async function classifyReplyCategory(
+  client: Anthropic,
+  params: {
+    replyText: string;
+    channel: 'email' | 'linkedin';
+    leadContext?: {
+      name?: string;
+      company?: string;
+      title?: string;
+      industry?: string;
+    };
+    conversationHistory?: Array<{
+      role: 'outbound' | 'reply';
+      content: string;
+    }>;
+  },
+  options?: {
+    model?: string;
+    maxTokens?: number;
+  }
+): Promise<{
+  category: ClassificationCategory;
+  effectiveCategory: ClassificationCategory;
+  confidence: number;
+  reasoning: string;
+  signals: string[];
+  tokensUsed: number;
+}> {
+  const model = options?.model ?? 'claude-sonnet-4-20250514';
+  const maxTokens = options?.maxTokens ?? 1024;
+
+  // Parse email to extract new content
+  const parsed = parseEmailReply(params.replyText);
+  const cleanContent = parsed.newContent;
+
+  // Check for auto-reply (Category B - non-actionable)
+  const autoReply = detectAutoReply(cleanContent);
+  if (autoReply.isAutoReply) {
+    return {
+      category: 'B',
+      effectiveCategory: 'B',
+      confidence: 0.95,
+      reasoning: `Detected ${autoReply.type} auto-reply pattern - not a human response`,
+      signals: [autoReply.type ?? 'auto_reply'],
+      tokensUsed: 0,
+    };
+  }
+
+  // Build system prompt for A/B/C classification
+  const systemPrompt = `You are an expert at classifying sales reply intent for a GTM operations system.
+
+Your task is to classify each reply into EXACTLY ONE of three categories:
+
+## Category A - INTERESTED
+Clear positive buying signals. The prospect wants to engage further.
+Signals:
+- "Yes", "Let's talk", "I'm interested"
+- Meeting/call requests, calendar availability
+- Demo requests, wanting to learn more
+- Positive acknowledgment of the value proposition
+
+## Category B - NOT INTERESTED
+Clear negative signals or explicit opt-out. The prospect does not want to engage.
+Signals:
+- "No thanks", "Not interested", "Pass"
+- Unsubscribe requests, "Stop emailing me"
+- Hostile or rude responses
+- Clear "not a fit" or "already have a solution"
+- Out-of-office replies (non-actionable)
+- Bounce/delivery failures
+
+## Category C - MANUAL REVIEW
+Ambiguous replies that require human judgment. Could go either way.
+Signals:
+- Questions about pricing, features, timeline
+- Objections (budget, timing, authority)
+- "Maybe later", "Send more info"
+- Referrals to another person
+- Conditional interest ("If you can do X...")
+- Mixed signals or unclear intent
+
+## Rules:
+1. If confidence is below 0.7, default to Category C (human review)
+2. When in doubt, choose C - it's safer to have humans review than to misroute
+3. Consider the tone and context, not just keywords
+
+Use the classify_reply_category tool to provide your structured classification.`;
+
+  // Build user prompt
+  let userPrompt = `Classify this ${params.channel} reply into Category A, B, or C:\n\n---\n${cleanContent}\n---`;
+
+  if (params.leadContext) {
+    const ctx = params.leadContext;
+    userPrompt += `\n\nLead Context:`;
+    if (ctx.name) userPrompt += `\n- Name: ${ctx.name}`;
+    if (ctx.company) userPrompt += `\n- Company: ${ctx.company}`;
+    if (ctx.title) userPrompt += `\n- Title: ${ctx.title}`;
+    if (ctx.industry) userPrompt += `\n- Industry: ${ctx.industry}`;
+  }
+
+  if (params.conversationHistory && params.conversationHistory.length > 0) {
+    userPrompt += `\n\nConversation History (most recent last):`;
+    for (const msg of params.conversationHistory.slice(-3)) {
+      userPrompt += `\n[${msg.role}]: ${msg.content.slice(0, 200)}${msg.content.length > 200 ? '...' : ''}`;
+    }
+  }
+
+  userPrompt += '\n\nProvide your classification using the classify_reply_category tool.';
+
+  // Call Claude with structured output
+  const response = await client.messages.create({
+    model,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    tools: [CATEGORY_CLASSIFICATION_TOOL.tool],
+    tool_choice: forceToolChoice(CATEGORY_CLASSIFICATION_TOOL.name),
+    messages: [{ role: 'user', content: userPrompt }],
+  });
+
+  const tokensUsed = response.usage.input_tokens + response.usage.output_tokens;
+
+  // Extract and parse tool result
+  const toolResult = extractToolResult(response.content, CATEGORY_CLASSIFICATION_TOOL.name);
+  if (!toolResult) {
+    return {
+      category: 'C',
+      effectiveCategory: 'C',
+      confidence: 0.5,
+      reasoning: 'No tool result returned from classification - defaulting to manual review',
+      signals: [],
+      tokensUsed,
+    };
+  }
+
+  try {
+    const parsed = CATEGORY_CLASSIFICATION_TOOL.parse(toolResult) as CategoryClassificationResult;
+    const effectiveCategory = getEffectiveCategory(parsed);
+
+    return {
+      category: parsed.category,
+      effectiveCategory,
+      confidence: parsed.confidence,
+      reasoning: parsed.reasoning,
+      signals: parsed.signals,
+      tokensUsed,
+    };
+  } catch (error) {
+    return {
+      category: 'C',
+      effectiveCategory: 'C',
+      confidence: 0.5,
+      reasoning: `Failed to parse classification: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      signals: [],
+      tokensUsed,
+    };
+  }
+}
+
+/**
+ * Map detailed intent to A/B/C category
+ *
+ * Useful for converting legacy intent-based classification to category routing
+ */
+export function intentToCategory(intent: Intent): ClassificationCategory {
+  const categoryA: Intent[] = ['positive_interest'];
+  const categoryB: Intent[] = ['unsubscribe', 'not_interested', 'out_of_office', 'bounce'];
+
+  if (categoryA.includes(intent)) return 'A';
+  if (categoryB.includes(intent)) return 'B';
+  return 'C'; // question, objection, referral, unclear
 }
 
 // ===========================================

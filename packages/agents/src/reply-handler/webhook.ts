@@ -2,7 +2,9 @@
  * Reply Handler Agent - Webhook HTTP Handler
  *
  * Provides HTTP endpoints for:
- * - POST /webhook/reply - Receive reply webhooks from Instantly
+ * - POST /webhook/reply/instantly - Receive reply webhooks from Instantly (email)
+ * - POST /webhook/reply/heyreach - Receive reply webhooks from HeyReach (LinkedIn)
+ * - POST /webhook/reply - Receive reply webhooks (legacy, auto-detects source)
  * - POST /webhook/slack - Handle Slack interactive callbacks
  * - GET /health - Health check endpoint
  * - GET /status/:draftId - Check draft status
@@ -15,7 +17,13 @@
 // Bun server type
 import { z } from 'zod';
 import type { ReplyInput } from './contracts/reply-input';
-import { parseReplyInput, webhookToReplyInput, InstantlyWebhookPayloadSchema } from './contracts/reply-input';
+import {
+  parseReplyInput,
+  webhookToReplyInput,
+  heyreachWebhookToReplyInput,
+  InstantlyWebhookPayloadSchema,
+  HeyReachWebhookPayloadSchema,
+} from './contracts/reply-input';
 import type { ReplyHandlerResult } from './contracts/handler-result';
 import type { SlackInteractivePayload } from './slack-flow';
 import { verifySlackSignature } from './slack-flow';
@@ -33,6 +41,9 @@ export interface WebhookConfig {
 
   /** Webhook secret for Instantly */
   instantlySecret: string;
+
+  /** Webhook secret for HeyReach */
+  heyreachSecret: string;
 
   /** Slack signing secret */
   slackSigningSecret: string;
@@ -120,6 +131,31 @@ function corsHeaders(config: WebhookConfig): Record<string, string> {
   };
 }
 
+/**
+ * Derive A/B/C category from intent for n8n workflow routing.
+ *
+ * - Category A (Interested): positive_interest
+ * - Category B (Not Interested): unsubscribe, not_interested, out_of_office, bounce
+ * - Category C (Manual Review): question, objection, referral, unclear
+ */
+function intentToCategory(intent: string): 'A' | 'B' | 'C' {
+  switch (intent) {
+    case 'positive_interest':
+      return 'A';
+    case 'unsubscribe':
+    case 'not_interested':
+    case 'out_of_office':
+    case 'bounce':
+      return 'B';
+    case 'question':
+    case 'objection':
+    case 'referral':
+    case 'unclear':
+    default:
+      return 'C';
+  }
+}
+
 // ===========================================
 // Request Verification
 // ===========================================
@@ -201,12 +237,32 @@ function buildHealthResponse(): HealthCheckResponse {
 // Route Handlers
 // ===========================================
 
-async function handleReplyWebhook(
+/**
+ * Verify webhook secret (works for both Instantly and HeyReach)
+ */
+function verifyWebhookSecret(request: Request, secret: string): boolean {
+  const providedSecret = request.headers.get('X-Webhook-Secret');
+  if (!providedSecret) return false;
+
+  // Timing-safe comparison
+  if (providedSecret.length !== secret.length) return false;
+
+  let result = 0;
+  for (let i = 0; i < secret.length; i++) {
+    result |= providedSecret.charCodeAt(i) ^ secret.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+/**
+ * Handle Instantly webhook (email replies)
+ */
+async function handleInstantlyWebhook(
   request: Request,
   config: WebhookConfig
 ): Promise<Response> {
   // Verify Instantly secret
-  if (!verifyInstantlySecret(request, config.instantlySecret)) {
+  if (!verifyWebhookSecret(request, config.instantlySecret)) {
     return errorResponse('Invalid webhook secret', HTTP_STATUS.UNAUTHORIZED, 'ERR_INVALID_SECRET');
   }
 
@@ -235,20 +291,159 @@ async function handleReplyWebhook(
   try {
     const result = await config.handleReply(replyInput);
 
-    return jsonResponse({
-      success: true,
-      reply_id: result.reply_id,
-      tier: result.routing.tier,
-      action_type: result.action.type,
-    }, HTTP_STATUS.OK);
+    return jsonResponse(
+      {
+        success: true,
+        reply_id: result.reply_id,
+        tier: result.routing.tier,
+        action_type: result.action.type,
+        source: 'instantly',
+      },
+      HTTP_STATUS.OK
+    );
   } catch (error) {
-    console.error('Reply processing error:', error);
+    console.error('Instantly reply processing error:', error);
+    return errorResponse('Failed to process reply', HTTP_STATUS.INTERNAL_ERROR, 'ERR_PROCESSING_FAILED');
+  }
+}
+
+/**
+ * Handle HeyReach webhook (LinkedIn replies)
+ */
+async function handleHeyReachWebhook(
+  request: Request,
+  config: WebhookConfig
+): Promise<Response> {
+  // Verify HeyReach secret
+  if (!verifyWebhookSecret(request, config.heyreachSecret)) {
+    return errorResponse('Invalid webhook secret', HTTP_STATUS.UNAUTHORIZED, 'ERR_INVALID_SECRET');
+  }
+
+  // Parse request body
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return errorResponse('Invalid JSON body', HTTP_STATUS.BAD_REQUEST, 'ERR_INVALID_JSON');
+  }
+
+  // Validate HeyReach webhook payload
+  const parseResult = HeyReachWebhookPayloadSchema.safeParse(body);
+  if (!parseResult.success) {
     return errorResponse(
-      'Failed to process reply',
-      HTTP_STATUS.INTERNAL_ERROR,
-      'ERR_PROCESSING_FAILED'
+      `Invalid webhook payload: ${parseResult.error.message}`,
+      HTTP_STATUS.BAD_REQUEST,
+      'ERR_INVALID_PAYLOAD'
     );
   }
+
+  // Convert to ReplyInput
+  const replyInput = heyreachWebhookToReplyInput(parseResult.data, config.brainId);
+
+  // Process the reply
+  try {
+    const result = await config.handleReply(replyInput);
+
+    return jsonResponse(
+      {
+        success: true,
+        reply_id: result.reply_id,
+        tier: result.routing.tier,
+        action_type: result.action.type,
+        source: 'heyreach',
+      },
+      HTTP_STATUS.OK
+    );
+  } catch (error) {
+    console.error('HeyReach reply processing error:', error);
+    return errorResponse('Failed to process reply', HTTP_STATUS.INTERNAL_ERROR, 'ERR_PROCESSING_FAILED');
+  }
+}
+
+/**
+ * Handle legacy /webhook/reply endpoint (auto-detect source)
+ */
+async function handleReplyWebhook(
+  request: Request,
+  config: WebhookConfig
+): Promise<Response> {
+  // Try to detect source from payload
+  const clonedRequest = request.clone();
+  let body: unknown;
+  try {
+    body = await clonedRequest.json();
+  } catch {
+    return errorResponse('Invalid JSON body', HTTP_STATUS.BAD_REQUEST, 'ERR_INVALID_JSON');
+  }
+
+  // Check if it's an Instantly payload
+  const instantlyResult = InstantlyWebhookPayloadSchema.safeParse(body);
+  if (instantlyResult.success) {
+    // Verify Instantly secret
+    if (!verifyInstantlySecret(request, config.instantlySecret)) {
+      return errorResponse('Invalid webhook secret', HTTP_STATUS.UNAUTHORIZED, 'ERR_INVALID_SECRET');
+    }
+
+    const replyInput = webhookToReplyInput(instantlyResult.data, config.brainId);
+
+    try {
+      const result = await config.handleReply(replyInput);
+      const category = intentToCategory(result.classification.intent);
+      return jsonResponse(
+        {
+          success: true,
+          reply_id: result.reply_id,
+          category,
+          tier: result.routing.tier,
+          action_type: result.action.type,
+          intent: result.classification.intent,
+          source: 'instantly',
+        },
+        HTTP_STATUS.OK
+      );
+    } catch (error) {
+      console.error('Reply processing error:', error);
+      return errorResponse('Failed to process reply', HTTP_STATUS.INTERNAL_ERROR, 'ERR_PROCESSING_FAILED');
+    }
+  }
+
+  // Check if it's a HeyReach payload
+  const heyreachResult = HeyReachWebhookPayloadSchema.safeParse(body);
+  if (heyreachResult.success) {
+    // Verify HeyReach secret
+    if (!verifyWebhookSecret(request, config.heyreachSecret)) {
+      return errorResponse('Invalid webhook secret', HTTP_STATUS.UNAUTHORIZED, 'ERR_INVALID_SECRET');
+    }
+
+    const replyInput = heyreachWebhookToReplyInput(heyreachResult.data, config.brainId);
+
+    try {
+      const result = await config.handleReply(replyInput);
+      const category = intentToCategory(result.classification.intent);
+      return jsonResponse(
+        {
+          success: true,
+          reply_id: result.reply_id,
+          category,
+          tier: result.routing.tier,
+          action_type: result.action.type,
+          intent: result.classification.intent,
+          source: 'heyreach',
+        },
+        HTTP_STATUS.OK
+      );
+    } catch (error) {
+      console.error('Reply processing error:', error);
+      return errorResponse('Failed to process reply', HTTP_STATUS.INTERNAL_ERROR, 'ERR_PROCESSING_FAILED');
+    }
+  }
+
+  // Unknown payload format
+  return errorResponse(
+    'Unknown webhook payload format. Use /webhook/reply/instantly or /webhook/reply/heyreach for explicit routing.',
+    HTTP_STATUS.BAD_REQUEST,
+    'ERR_UNKNOWN_PAYLOAD'
+  );
 }
 
 async function handleSlackWebhook(
@@ -351,7 +546,25 @@ export function createRequestHandler(config: WebhookConfig) {
         return jsonResponse(buildHealthResponse(), HTTP_STATUS.OK, cors);
       }
 
-      // Reply webhook
+      // Instantly webhook (email replies)
+      if (path === '/webhook/reply/instantly' && method === 'POST') {
+        const response = await handleInstantlyWebhook(request, config);
+        for (const [key, value] of Object.entries(cors)) {
+          response.headers.set(key, value);
+        }
+        return response;
+      }
+
+      // HeyReach webhook (LinkedIn replies)
+      if (path === '/webhook/reply/heyreach' && method === 'POST') {
+        const response = await handleHeyReachWebhook(request, config);
+        for (const [key, value] of Object.entries(cors)) {
+          response.headers.set(key, value);
+        }
+        return response;
+      }
+
+      // Legacy reply webhook (auto-detect source)
       if (path === '/webhook/reply' && method === 'POST') {
         const response = await handleReplyWebhook(request, config);
         // Add CORS headers
@@ -436,6 +649,8 @@ export function createWebhookMiddleware(config: WebhookConfig) {
       return (
         path === '/health' ||
         path === '/webhook/reply' ||
+        path === '/webhook/reply/instantly' ||
+        path === '/webhook/reply/heyreach' ||
         path === '/webhook/slack' ||
         path.startsWith('/status/')
       );

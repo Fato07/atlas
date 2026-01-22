@@ -160,7 +160,8 @@ def create_rest_app() -> FastAPI:
                     result_type=type(response_data).__name__,
                 )
 
-                return JSONResponse(content=response_data)
+                # Wrap response in {success, result} format expected by mcp-bridge.ts
+                return JSONResponse(content={"success": True, "result": response_data})
 
         except Exception as e:
             error_msg = str(e)
@@ -171,14 +172,25 @@ def create_rest_app() -> FastAPI:
                 traceback=traceback.format_exc(),
             )
 
-            # Check for specific error types
+            # Return error in {success, error} format expected by mcp-bridge.ts
+            # Use 200 OK status so the client can parse the JSON error properly
+            # Check for specific error types for logging purposes
             if "not found" in error_msg.lower() or "unknown tool" in error_msg.lower():
-                raise HTTPException(status_code=404, detail=f"Tool not found: {tool_name}")
+                return JSONResponse(
+                    content={"success": False, "error": f"Tool not found: {tool_name}"},
+                    status_code=404,
+                )
 
             if "invalid" in error_msg.lower() or "validation" in error_msg.lower():
-                raise HTTPException(status_code=400, detail=f"Invalid arguments: {error_msg}")
+                return JSONResponse(
+                    content={"success": False, "error": f"Invalid arguments: {error_msg}"},
+                    status_code=400,
+                )
 
-            raise HTTPException(status_code=500, detail=f"Tool call failed: {error_msg}")
+            return JSONResponse(
+                content={"success": False, "error": f"Tool call failed: {error_msg}"},
+                status_code=500,
+            )
 
     return app
 
