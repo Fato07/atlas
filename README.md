@@ -1,4 +1,4 @@
-# Atlas GTM
+# Atlas
 
 > AI-first GTM Operations System - Same agents, different brains for rapid market validation.
 
