@@ -23,7 +23,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { WebClient } from '@slack/web-api';
-import type { BrainId } from '@atlas-gtm/lib';
+import { parseSlackChannelId, type BrainId } from '@atlas-gtm/lib';
 
 import { createAndInitMeetingPrepAgent, MeetingPrepAgent } from './agent';
 import { createWebhookServer } from './webhook';
@@ -80,7 +80,7 @@ function loadEnvConfig(): EnvConfig {
     voyageApiKey: process.env.VOYAGE_API_KEY!,
     qdrantUrl: process.env.QDRANT_URL!,
     slackBotToken: process.env.SLACK_BOT_TOKEN!,
-    slackBriefChannel: process.env.SLACK_BRIEF_CHANNEL!,
+    slackBriefChannel: parseSlackChannelId(process.env.SLACK_BRIEF_CHANNEL!),
     webhookSecret: process.env.MEETING_PREP_SECRET!,
     mcpServerUrl: process.env.MCP_SERVER_URL!,
     defaultBrainId: process.env.DEFAULT_BRAIN_ID!,

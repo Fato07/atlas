@@ -45,3 +45,6 @@ export {
   type UpdateBrainInput,
   type CopyBrainOptions,
 } from './brain-manager';
+
+// Slack Utilities
+export { parseSlackChannelId } from './slack-utils';

@@ -462,7 +462,19 @@ def register_slack_tools(mcp: FastMCP) -> None:
 
         fallback_text = f"New reply from {lead_name} at {lead_company} requires approval"
 
-        return await slack_post_blocks(channel, blocks, fallback_text)
+        # Call Slack API directly (not via slack_post_blocks tool to avoid FunctionTool issue)
+        payload = {
+            "channel": channel,
+            "blocks": blocks,
+            "text": fallback_text,
+        }
+        response = await slack.post("chat.postMessage", json=payload)
+        return {
+            "ok": True,
+            "channel": response.get("channel"),
+            "ts": response.get("ts"),
+            "message": response.get("message"),
+        }
 
     @mcp.tool()
     async def slack_post_escalation(
@@ -512,7 +524,19 @@ def register_slack_tools(mcp: FastMCP) -> None:
 
         fallback_text = f"🚨 Escalation: Reply from {lead_name} requires human handling - {reason}"
 
-        return await slack_post_blocks(channel, blocks, fallback_text)
+        # Call Slack API directly (not via slack_post_blocks tool to avoid FunctionTool issue)
+        payload = {
+            "channel": channel,
+            "blocks": blocks,
+            "text": fallback_text,
+        }
+        response = await slack.post("chat.postMessage", json=payload)
+        return {
+            "ok": True,
+            "channel": response.get("channel"),
+            "ts": response.get("ts"),
+            "message": response.get("message"),
+        }
 
     @mcp.tool()
     async def slack_resolve_approval(
@@ -563,7 +587,20 @@ def register_slack_tools(mcp: FastMCP) -> None:
         status_text = status.replace("_", " ").title()
         fallback_text = f"Draft {status_text}"
 
-        return await slack_update_message(channel, ts, text=fallback_text, blocks=updated_blocks)
+        # Call Slack API directly (not via slack_update_message tool to avoid FunctionTool issue)
+        payload = {
+            "channel": channel,
+            "ts": ts,
+            "text": fallback_text,
+            "blocks": updated_blocks,
+        }
+        response = await slack.post("chat.update", json=payload)
+        return {
+            "ok": True,
+            "channel": response.get("channel"),
+            "ts": response.get("ts"),
+            "message": response.get("message"),
+        }
 
     @mcp.tool()
     async def slack_add_reaction(

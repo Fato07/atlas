@@ -26,6 +26,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { WebClient } from '@slack/web-api';
+import { parseSlackChannelId } from '@atlas-gtm/lib';
 
 import { createReplyHandlerAgent, ReplyHandlerAgent } from './agent';
 import { createWebhookServer } from './webhook';
@@ -44,6 +45,7 @@ interface EnvConfig {
 
   // Vector DB
   qdrantUrl: string;
+  qdrantApiKey: string;
 
   // Slack
   slackBotToken: string;
@@ -74,6 +76,7 @@ function loadEnvConfig(): EnvConfig {
     'ANTHROPIC_API_KEY',
     'VOYAGE_API_KEY',
     'QDRANT_URL',
+    'QDRANT_API_KEY',
     'SLACK_BOT_TOKEN',
     'SLACK_SIGNING_SECRET',
     'SLACK_APPROVAL_CHANNEL',
@@ -95,10 +98,11 @@ function loadEnvConfig(): EnvConfig {
     anthropicApiKey: process.env.ANTHROPIC_API_KEY!,
     voyageApiKey: process.env.VOYAGE_API_KEY!,
     qdrantUrl: process.env.QDRANT_URL!,
+    qdrantApiKey: process.env.QDRANT_API_KEY!,
     slackBotToken: process.env.SLACK_BOT_TOKEN!,
     slackSigningSecret: process.env.SLACK_SIGNING_SECRET!,
-    slackApprovalChannel: process.env.SLACK_APPROVAL_CHANNEL!,
-    slackEscalationChannel: process.env.SLACK_ESCALATION_CHANNEL!,
+    slackApprovalChannel: parseSlackChannelId(process.env.SLACK_APPROVAL_CHANNEL!),
+    slackEscalationChannel: parseSlackChannelId(process.env.SLACK_ESCALATION_CHANNEL!),
     instantlyWebhookSecret: process.env.INSTANTLY_WEBHOOK_SECRET!,
     heyreachWebhookSecret: process.env.HEYREACH_WEBHOOK_SECRET!,
     mcpServerUrl: process.env.MCP_SERVER_URL!,
@@ -124,15 +128,17 @@ function initializeClients(config: EnvConfig) {
   // Qdrant client for KB
   const qdrant = new QdrantClient({
     url: config.qdrantUrl,
+    apiKey: config.qdrantApiKey,
   });
 
   // Slack Web API client
   const slack = new WebClient(config.slackBotToken);
 
   // Voyage AI embedder
+  // Use voyage-3 model which produces 1024-dimension vectors to match Qdrant collections
   const embedder = createVoyageEmbedder({
     apiKey: config.voyageApiKey,
-    model: 'voyage-3-lite',
+    model: 'voyage-3',
   });
 
   // MCP bridge function

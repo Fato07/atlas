@@ -35,6 +35,7 @@ import type {
   TierRouting,
   ExtractedInsight,
   CRMUpdates,
+  Intent,
 } from './contracts/handler-result';
 import {
   createAutoRespondResult,
@@ -260,7 +261,7 @@ export class ReplyHandlerAgent {
             leadContext,
             cleanedReplyText,
             classification,
-            kbMatch!,
+            kbMatch,
             routing,
             getElapsedMs
           );
@@ -322,19 +323,65 @@ export class ReplyHandlerAgent {
    * Execute Tier 1 flow: Generate and send automatic response.
    *
    * Requirements:
-   * - High confidence positive interest (>= 0.85)
-   * - KB match found with template
-   * - Auto-send via Instantly MCP
+   * - High confidence positive interest (>= 0.85) with KB match, OR
+   * - Auto-respond intent (out_of_office, bounce, unsubscribe) - no response needed
+   * - Auto-send via Instantly MCP (only if KB match exists)
    */
   private async executeTier1(
     input: ReplyInput,
     leadContext: LeadContext,
     cleanedReplyText: string,
     classification: Classification,
-    kbMatch: KBMatch,
+    kbMatch: KBMatch | undefined,
     routing: TierRouting,
     getElapsedMs: () => number
   ): Promise<ReplyHandlerResult> {
+    // Auto-respond intents (out_of_office, bounce, unsubscribe) don't need a response
+    const autoRespondIntents: Intent[] = ['out_of_office', 'bounce', 'unsubscribe'];
+    const isAutoRespondIntent = autoRespondIntents.includes(classification.intent);
+
+    // If no KB match and it's an auto-respond intent, just update CRM and return
+    if (!kbMatch && isAutoRespondIntent) {
+      // Update CRM with the classification (no response sent)
+      const crmResult = await this.crmUpdater.updateCRM({
+        leadContext,
+        classification,
+        routing,
+        replyText: cleanedReplyText,
+        responseSent: false,
+      });
+
+      // Log CRM update
+      this.logger.crmUpdated({
+        reply_id: input.reply_id,
+        lead_id: input.lead_id,
+        brain_id: input.brain_id,
+        airtable_updated: crmResult.airtable.updated,
+        attio_created: crmResult.attio.created,
+      });
+
+      return createAutoRespondResult({
+        replyId: input.reply_id,
+        classification,
+        kbMatch: undefined,
+        responseText: '', // No response for auto-respond intents without template
+        crmUpdates: {
+          airtable_updated: crmResult.airtable.updated,
+          airtable_status: crmResult.airtable.status,
+          attio_created: crmResult.attio.created,
+          attio_record_id: crmResult.attio.recordId,
+        },
+        insights: [], // No insights from OOO/bounce/unsubscribe
+        processingTimeMs: getElapsedMs(),
+      });
+    }
+
+    // If no KB match but not an auto-respond intent, this shouldn't happen
+    // (router should have sent to Tier 3), but handle gracefully
+    if (!kbMatch) {
+      throw new Error('Tier 1 requires KB match for non-auto-respond intents');
+    }
+
     // Build template variables
     const templateVariables = this.buildTemplateVariables(leadContext);
 
@@ -618,7 +665,7 @@ export class ReplyHandlerAgent {
     await this.callMcpTool('send_reply', {
       email: params.email,
       campaign_id: params.campaignId,
-      message: params.message,
+      body: params.message,  // MCP tool expects 'body' not 'message'
       subject: params.subject,
     });
   }

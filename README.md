@@ -1,8 +1,8 @@
-# Atlas GTM
+# Atlas
 
 > AI-first GTM Operations System - Same agents, different brains for rapid market validation.
 
-Atlas GTM enables you to validate new markets with 80% less manual work by using swappable "brains" (vertical-specific knowledge bases) that power AI agents for lead scoring, reply handling, and meeting preparation.
+Atlas enables you to validate new markets with 80% less manual work by using swappable "brains" (vertical-specific knowledge bases) that power AI agents for lead scoring, reply handling, and meeting preparation.
 
 ## Quick Start
 
@@ -34,6 +34,10 @@ Required API keys:
 - `VOYAGE_API_KEY` - For embeddings
 - `ATTIO_API_KEY` - For CRM integration
 - `INSTANTLY_API_KEY` - For email integration
+- `HEYREACH_API_KEY` - For LinkedIn automation
+- `SLACK_BOT_TOKEN` - For notifications
+- `UPSTASH_REDIS_REST_URL` - For caching
+- `UPSTASH_REDIS_REST_TOKEN` - For caching
 
 ### 3. Start Infrastructure
 
@@ -86,30 +90,56 @@ bun run mcp:dev
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Atlas GTM                             │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │ Lead Scorer │  │   Reply     │  │  Meeting    │         │
-│  │   Agent     │  │  Handler    │  │    Prep     │         │
-│  │  (80k ctx)  │  │  (60k ctx)  │  │  (100k ctx) │         │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘         │
-│         │                │                │                 │
-│         └────────────────┼────────────────┘                 │
-│                          │                                  │
-│                    ┌─────▼─────┐                            │
-│                    │    MCP    │                            │
-│                    │  Servers  │                            │
-│                    └─────┬─────┘                            │
-│         ┌────────────────┼────────────────┐                 │
-│         │                │                │                 │
-│    ┌────▼────┐    ┌──────▼──────┐   ┌─────▼─────┐          │
-│    │ Qdrant  │    │    Attio    │   │ Instantly │          │
-│    │  (KB)   │    │   (CRM)     │   │  (Email)  │          │
-│    └─────────┘    └─────────────┘   └───────────┘          │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                          Atlas                                  │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐       │
+│  │   Lead    │ │   Reply   │ │  Meeting  │ │ Learning  │       │
+│  │  Scorer   │ │  Handler  │ │   Prep    │ │   Loop    │       │
+│  │  (80k)    │ │  (60k)    │ │  (100k)   │ │  (40k)    │       │
+│  └─────┬─────┘ └─────┬─────┘ └─────┬─────┘ └─────┬─────┘       │
+│        └─────────────┼───────────────┼───────────┘             │
+│                      │               │                          │
+│                ┌─────▼───────────────▼─────┐                   │
+│                │       MCP Servers         │                   │
+│                └─────┬───────────────┬─────┘                   │
+│     ┌────────────────┼───────────────┼────────────────┐        │
+│     │                │               │                │        │
+│ ┌───▼───┐      ┌─────▼─────┐   ┌─────▼─────┐   ┌──────▼──────┐ │
+│ │Qdrant │      │   Attio   │   │ Instantly │   │  HeyReach   │ │
+│ │  (KB) │      │   (CRM)   │   │ (Email)   │   │ (LinkedIn)  │ │
+│ └───────┘      └───────────┘   └───────────┘   └─────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
 ```
+  How Atlas GTM Slack Integration Works
 
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                      YOUR SLACK WORKSPACE                           │
+  │                                                                     │
+  │  ┌──────────────┐     ┌───────────────┐     ┌──────────────────┐   │
+  │  │ #gtm-approvals│     │ #gtm-escalations│    │ #gtm-briefs     │   │
+  │  └──────────────┘     └───────────────┘     └──────────────────┘   │
+  │           ↑                   ↑                      ↑              │
+  │           │                   │                      │              │
+  │           └───────────────────┼──────────────────────┘              │
+  │                               │                                     │
+  │                    ┌──────────┴──────────┐                         │
+  │                    │  YOUR SLACK BOT     │  ← You create this      │
+  │                    │  (e.g., "GTM Ops")  │                         │
+  │                    │  xoxb-xxx token     │                         │
+  │                    └─────────────────────┘                         │
+  └─────────────────────────────────────────────────────────────────────┘
+                                 ↑
+                                 │ SLACK_BOT_TOKEN in .env
+                                 │
+  ┌──────────────────────────────┴──────────────────────────────────────┐
+  │                     ATLAS GTM SYSTEM (Your Server)                  │
+  │                                                                     │
+  │   ┌─────────────┐    ┌───────────────┐    ┌────────────────┐       │
+  │   │Reply Handler│    │ Meeting Prep  │    │ Learning Loop  │       │
+  │   │   Agent     │    │    Agent      │    │    Agent       │       │
+  │   └─────────────┘    └───────────────┘    └────────────────┘       │
+  └─────────────────────────────────────────────────────────────────────┘
 ### Brains
 
 A "brain" is a vertical-specific knowledge base containing:
@@ -124,17 +154,48 @@ Switch brains to instantly adapt to new markets without retraining.
 
 | Agent | Context Budget | Purpose |
 |-------|---------------|---------|
-| Lead Scorer | 80,000 tokens | Score leads against ICP, assign tiers |
-| Reply Handler | 60,000 tokens | Classify email intent, draft responses |
-| Meeting Prep | 100,000 tokens | Prepare comprehensive meeting briefings |
+| Lead Scorer | 80,000 tokens | Score leads against ICP, assign tiers, recommend messaging angles |
+| Reply Handler | 60,000 tokens | Classify reply intent (A/B/C), execute category workflows, stop campaigns |
+| Meeting Prep | 100,000 tokens | Pre-call briefs, post-call transcript analysis, BANT scoring |
+| Learning Loop | 40,000 tokens | Extract insights, quality gates, Slack validation, KB learning |
 
 ### MCP Servers
 
 Python servers using FastMCP that provide tools to agents:
 
 - **Qdrant MCP** - Knowledge base queries (brain-scoped)
-- **Attio MCP** - CRM operations
-- **Instantly MCP** - Email operations
+- **Attio MCP** - CRM operations (pipeline, records, notes)
+- **Instantly MCP** - Email operations (38 tools, v2 API: campaigns, leads, emails, analytics)
+- **HeyReach MCP** - LinkedIn automation (35 tools: campaigns, inbox, lists, leads, stats)
+
+## Key Features
+
+### GTM Ops Workflows (Reply Handler)
+
+The Reply Handler implements a complete A/B/C classification workflow:
+
+- **Category A (Interested)**: Create Attio CRM record, send calendar link via Instantly, add to HeyReach LinkedIn campaign
+- **Category B (Not Interested)**: Stop Instantly/HeyReach campaigns, process DNC requests, update lead status
+- **Category C (Manual Review)**: Slack notification with full lead context, pattern storage to KB for learning
+
+All classifications use a 0.70 confidence threshold with fallback to manual review.
+
+### Multi-Vertical Brain Swapping
+
+- Switch market contexts instantly without retraining agents
+- Data-driven vertical registry with auto-classification
+- Brain-scoped queries ensure complete data isolation between verticals
+- Support for defense, fintech, healthtech, and custom verticals
+
+### Learning Loop
+
+Automated knowledge capture from conversations:
+
+- Insight extraction from email replies and call transcripts
+- Quality gates (confidence, duplicate detection, importance scoring)
+- Slack-based human validation queue for review
+- KB write with provenance tracking
+- Weekly synthesis reports with template A/B performance tracking
 
 ## Commands Reference
 
@@ -170,24 +231,37 @@ docker-compose logs -f     # View logs
 ```
 atlas-gtm/
 ├── packages/
-│   ├── lib/               # Shared utilities
+│   ├── lib/                    # Shared utilities
 │   │   └── src/
-│   │       ├── types.ts   # Type definitions
-│   │       ├── qdrant.ts  # Qdrant client
-│   │       ├── embeddings.ts # Voyage AI
-│   │       └── state.ts   # State management
-│   └── agents/            # Production agents
+│   │       ├── types.ts        # Branded types, Zod schemas
+│   │       ├── qdrant.ts       # Qdrant client wrapper
+│   │       ├── embeddings.ts   # Voyage AI
+│   │       └── state.ts        # State management
+│   └── agents/                 # Production agents
 │       └── src/
-│           ├── base-agent.ts
-│           ├── sub-agent.ts
-│           ├── lead-scorer.ts
-│           ├── reply-handler.ts
-│           └── meeting-prep.ts
-├── mcp-servers/           # Python MCP servers
+│           ├── lead-scorer/    # Lead scoring (80k budget)
+│           ├── reply-handler/  # Reply handling (60k budget)
+│           │   ├── contracts/  # Zod schemas
+│           │   ├── classifier.ts
+│           │   ├── category-a.ts
+│           │   ├── category-b.ts
+│           │   └── category-c.ts
+│           ├── meeting-prep/   # Meeting preparation (100k budget)
+│           │   ├── contracts/
+│           │   └── sub-agents/
+│           └── learning-loop/  # Knowledge learning (40k budget)
+│               ├── contracts/
+│               └── quality-gates.ts
+├── mcp-servers/                # Python MCP servers
 │   └── atlas_gtm_mcp/
-├── scripts/               # Utility scripts
-├── data/                  # Brain data files
-└── state/                 # Agent state (gitignored)
+│       ├── qdrant/             # KB tools
+│       ├── attio/              # CRM tools
+│       ├── instantly/          # Email (38 tools)
+│       └── heyreach/           # LinkedIn (35 tools)
+├── workflows/n8n/              # n8n workflow files
+├── scripts/                    # Utility scripts
+├── data/                       # Brain data files
+└── state/                      # Agent state (gitignored)
 ```
 
 ## Contributing

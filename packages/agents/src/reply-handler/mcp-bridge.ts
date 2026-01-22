@@ -87,17 +87,30 @@ export function createMcpBridge(config: McpBridgeConfig | string) {
 
       clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Unknown error');
-        throw new Error(
-          `MCP tool '${tool}' failed with status ${response.status}: ${errorText}`
-        );
+      // Try to parse JSON body first - REST API returns {success, result/error} format
+      let data: McpToolResponse<T>;
+      try {
+        data = (await response.json()) as McpToolResponse<T>;
+      } catch {
+        // If JSON parsing fails and response is not OK, throw with status
+        if (!response.ok) {
+          throw new Error(
+            `MCP tool '${tool}' failed with status ${response.status}: Unable to parse response`
+          );
+        }
+        throw new Error(`MCP tool '${tool}' returned invalid JSON`);
       }
 
-      const data = (await response.json()) as McpToolResponse<T>;
-
-      if (!data.success && data.error) {
+      // Check for error in the response body
+      if (data.success === false && data.error) {
         throw new Error(`MCP tool '${tool}' error: ${data.error}`);
+      }
+
+      // If response status is not OK but no error in body, throw with status
+      if (!response.ok) {
+        throw new Error(
+          `MCP tool '${tool}' failed with status ${response.status}`
+        );
       }
 
       return data.result as T;
