@@ -84,7 +84,7 @@ function loadEnvConfig(): EnvConfig {
     webhookSecret: process.env.MEETING_PREP_SECRET!,
     mcpServerUrl: process.env.MCP_SERVER_URL!,
     defaultBrainId: process.env.DEFAULT_BRAIN_ID!,
-    port: parseInt(process.env.MEETING_PREP_PORT ?? '3003', 10),
+    port: parseInt(process.env.MEETING_PREP_PORT ?? '4003', 10),
     statePath: process.env.MEETING_PREP_STATE_PATH,
   };
 }

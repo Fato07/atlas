@@ -570,6 +570,7 @@ export class LearningLoopAgent {
         templateId,
         outcome,
         newSuccessRate: 0,
+        timesUsed: 0,
         error: 'No active brain',
       };
     }

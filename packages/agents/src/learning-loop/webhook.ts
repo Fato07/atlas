@@ -44,7 +44,7 @@ export interface WebhookRouterConfig {
 
 export const DEFAULT_WEBHOOK_CONFIG: WebhookRouterConfig = {
   webhookSecret: process.env.WEBHOOK_SECRET ?? '',
-  port: parseInt(process.env.LEARNING_LOOP_PORT ?? '3002', 10),
+  port: parseInt(process.env.LEARNING_LOOP_PORT ?? '4004', 10),
   basePath: '/webhook/learning-loop',
 };
 

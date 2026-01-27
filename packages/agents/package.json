@@ -16,11 +16,15 @@
     "test": "bun test",
     "test:e2e": "bun test --testNamePattern='E2E'",
     "dev": "bun run --watch src/index.ts",
-    "reply-handler": "bun run src/reply-handler/server.ts",
-    "reply-handler:dev": "bun --watch run src/reply-handler/server.ts",
+    "lead-scorer": "bun --env-file=../../.env run src/lead-scorer/server.ts",
+    "lead-scorer:dev": "bun --env-file=../../.env --watch run src/lead-scorer/server.ts",
+    "reply-handler": "bun --env-file=../../.env run src/reply-handler/server.ts",
+    "reply-handler:dev": "bun --env-file=../../.env --watch run src/reply-handler/server.ts",
     "reply-handler:mock": "bun run src/__tests__/reply-handler/fixtures/mock-server.ts",
-    "meeting-prep": "bun run src/meeting-prep/server.ts",
-    "meeting-prep:dev": "bun --watch run src/meeting-prep/server.ts"
+    "meeting-prep": "bun --env-file=../../.env run src/meeting-prep/server.ts",
+    "meeting-prep:dev": "bun --env-file=../../.env --watch run src/meeting-prep/server.ts",
+    "learning-loop": "bun --env-file=../../.env run src/learning-loop/server.ts",
+    "learning-loop:dev": "bun --env-file=../../.env --watch run src/learning-loop/server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",

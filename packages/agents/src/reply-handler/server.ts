@@ -107,7 +107,7 @@ function loadEnvConfig(): EnvConfig {
     heyreachWebhookSecret: process.env.HEYREACH_WEBHOOK_SECRET!,
     mcpServerUrl: process.env.MCP_SERVER_URL!,
     defaultBrainId: process.env.DEFAULT_BRAIN_ID!,
-    port: parseInt(process.env.REPLY_HANDLER_PORT ?? '3002', 10),
+    port: parseInt(process.env.REPLY_HANDLER_PORT ?? '4002', 10),
     senderName: process.env.SENDER_NAME,
     meetingLink: process.env.MEETING_LINK,
   };

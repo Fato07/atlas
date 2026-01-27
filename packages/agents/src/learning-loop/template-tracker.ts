@@ -99,6 +99,7 @@ export interface OutcomeResult {
   templateId: string;
   outcome: TemplateOutcome;
   newSuccessRate: number;
+  timesUsed: number;
   error?: string;
 }
 
@@ -245,6 +246,7 @@ export class TemplateTracker {
         templateId,
         outcome,
         newSuccessRate: performance.success_rate,
+        timesUsed: performance.times_used,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -260,6 +262,7 @@ export class TemplateTracker {
         templateId,
         outcome,
         newSuccessRate: 0,
+        timesUsed: 0,
         error: errorMessage,
       };
     }
