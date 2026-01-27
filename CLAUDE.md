@@ -311,6 +311,8 @@ See `docs/architecture/data-flow.md` for comprehensive system data flow diagrams
 | HeyReach MCP Server | ✅ | `012-heyreach-mcp-server` |
 | Operator Dashboard API | ✅ | `016-operator-dashboard` |
 | Operator Dashboard UI | ✅ | `016-operator-dashboard` |
+| n8n Workflows (Core) | ✅ | `main` |
+| n8n Workflows (GTM Ops) | ✅ | `015-gtm-ops-workflows` |
 
 ### Self-Updating Instructions
 

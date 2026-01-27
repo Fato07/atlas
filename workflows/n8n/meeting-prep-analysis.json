@@ -82,7 +82,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/meeting-prep/analyze",
+        "url": "={{ $env.MEETING_PREP_URL || 'http://localhost:4003' }}/webhook/meeting-prep/analyze",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -306,7 +306,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/learning-loop/insight",
+        "url": "={{ $env.LEARNING_LOOP_URL || 'http://localhost:4004' }}/webhook/learning-loop/insight",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -629,7 +629,7 @@
   "notes": [
     {
       "id": "note-1",
-      "content": "## Meeting Prep - Transcript Analysis\n\n### Purpose\nAnalyze call transcripts from Fireflies.ai and extract BANT insights after meetings.\n\n### Environment Variables Required:\n- `WEBHOOK_SECRET`: Secret for authenticating webhook requests\n- `AGENT_BASE_URL`: URL of the agent service (default: http://localhost:3001)\n- `SLACK_QUALIFIED_CHANNEL`: Channel for qualified leads (default: #qualified-leads)\n- `SLACK_PIPELINE_CHANNEL`: Channel for pipeline updates (default: #sales-pipeline)\n- `SLACK_NURTURE_CHANNEL`: Channel for nurture queue (default: #nurture-queue)\n- `SLACK_ALERTS_CHANNEL`: Channel for errors (default: #gtm-alerts)\n- `INTERNAL_DOMAINS`: Comma-separated internal email domains\n- `ATTIO_API_URL`: Attio API URL\n- `ATTIO_API_KEY`: Attio API key for CRM updates\n\n### Workflow Flow:\n1. **Fireflies Webhook**: Receives transcript_ready event\n2. **Auth Check**: Validates X-Webhook-Secret header\n3. **Parse Transcript**: Extract meeting details and transcript\n4. **Call Analysis Agent**: BANT scoring with 180s timeout\n5. **Route by BANT Score**:\n   - ≥80: #qualified-leads + CRM \"Qualified\"\n   - ≥60: #sales-pipeline + follow-up task\n   - <60: #nurture-queue + drip campaign\n6. **Update CRM**: Write BANT score and stage to Attio\n7. **Forward to Learning Loop**: Extract insights for KB learning\n\n### Fireflies Webhook Payload:\n```json\n{\n  \"event\": \"transcript_ready\",\n  \"meeting_id\": \"mtg_789\",\n  \"title\": \"Discovery Call - Acme Corp\",\n  \"participants\": [\"john@acme.com\", \"sales@codesdevs.com\"],\n  \"duration_minutes\": 32,\n  \"transcript_url\": \"https://fireflies.ai/transcript/xyz\",\n  \"transcript_text\": \"...\"\n}\n```\n\n### Test with curl:\n```bash\ncurl -X POST http://localhost:5678/webhook/meeting-prep-analysis \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $WEBHOOK_SECRET\" \\\n  -d '{\"event\":\"transcript_ready\",\"meeting_id\":\"mtg_123\",\"title\":\"Discovery Call\",\"participants\":[\"john@acme.com\"],\"transcript_text\":\"Great meeting...\"}'\n```",
+      "content": "## Meeting Prep - Transcript Analysis\n\n### Purpose\nAnalyze call transcripts from Fireflies.ai and extract BANT insights after meetings.\n\n### Environment Variables Required:\n- `WEBHOOK_SECRET`: Secret for authenticating webhook requests\n- `MEETING_PREP_URL`: URL of the Meeting Prep agent (default: http://localhost:4003)\n- `LEARNING_LOOP_URL`: URL of the Learning Loop agent (default: http://localhost:4004)\n- `SLACK_QUALIFIED_CHANNEL`: Channel for qualified leads (default: #qualified-leads)\n- `SLACK_PIPELINE_CHANNEL`: Channel for pipeline updates (default: #sales-pipeline)\n- `SLACK_NURTURE_CHANNEL`: Channel for nurture queue (default: #nurture-queue)\n- `SLACK_ALERTS_CHANNEL`: Channel for errors (default: #gtm-alerts)\n- `INTERNAL_DOMAINS`: Comma-separated internal email domains\n- `ATTIO_API_URL`: Attio API URL\n- `ATTIO_API_KEY`: Attio API key for CRM updates\n\n### Workflow Flow:\n1. **Fireflies Webhook**: Receives transcript_ready event\n2. **Auth Check**: Validates X-Webhook-Secret header\n3. **Parse Transcript**: Extract meeting details and transcript\n4. **Call Analysis Agent**: BANT scoring with 180s timeout\n5. **Route by BANT Score**:\n   - ≥80: #qualified-leads + CRM \"Qualified\"\n   - ≥60: #sales-pipeline + follow-up task\n   - <60: #nurture-queue + drip campaign\n6. **Update CRM**: Write BANT score and stage to Attio\n7. **Forward to Learning Loop**: Extract insights for KB learning\n\n### Fireflies Webhook Payload:\n```json\n{\n  \"event\": \"transcript_ready\",\n  \"meeting_id\": \"mtg_789\",\n  \"title\": \"Discovery Call - Acme Corp\",\n  \"participants\": [\"john@acme.com\", \"sales@codesdevs.com\"],\n  \"duration_minutes\": 32,\n  \"transcript_url\": \"https://fireflies.ai/transcript/xyz\",\n  \"transcript_text\": \"...\"\n}\n```\n\n### Test with curl:\n```bash\ncurl -X POST http://localhost:5678/webhook/meeting-prep-analysis \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $WEBHOOK_SECRET\" \\\n  -d '{\"event\":\"transcript_ready\",\"meeting_id\":\"mtg_123\",\"title\":\"Discovery Call\",\"participants\":[\"john@acme.com\"],\"transcript_text\":\"Great meeting...\"}'\n```",
       "position": [100, 600]
     }
   ]

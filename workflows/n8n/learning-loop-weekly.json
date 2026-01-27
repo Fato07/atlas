@@ -124,7 +124,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/learning-loop/weekly-synthesis",
+        "url": "={{ $env.LEARNING_LOOP_URL || 'http://localhost:4004' }}/webhook/learning-loop/synthesis",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -213,71 +213,7 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "has-kb-updates",
-              "leftValue": "={{ ($json.data?.kb_updates || []).length }}",
-              "rightValue": "0",
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "check-kb-updates",
-      "name": "Has KB Updates?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [1500, 250]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.AGENT_BASE_URL || 'http://localhost:3001' }}/webhook/learning-loop/write-kb",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            },
-            {
-              "name": "X-Webhook-Secret",
-              "value": "={{ $env.WEBHOOK_SECRET }}"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ insights: $json.data?.kb_updates || [], brain_id: $('Merge Triggers').first().json?.brain_id || 'default', source: 'weekly_synthesis', week: $json.data?.week_start + ' to ' + $json.data?.week_end }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "write-to-kb",
-      "name": "Write to KB",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1700, 150],
-      "retryOnFail": true,
-      "maxTries": 2,
-      "waitBetweenTries": 2000
-    },
-    {
-      "parameters": {
-        "jsCode": "// Aggregate final results\nconst mergeData = $('Merge Triggers').first().json;\nconst agentResult = $('Call Synthesis Agent').first().json;\nconst kbWriteResult = $('Write to KB').first()?.json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      week_start: mergeData.week_start,\n      week_end: mergeData.week_end,\n      volume: agentResult.data?.volume,\n      top_themes_count: (agentResult.data?.top_themes || []).length,\n      recommendations_count: (agentResult.data?.recommendations || []).length,\n      kb_updates_written: kbWriteResult?.data?.written || 0,\n      report_url: agentResult.data?.report_url,\n      processed_at: new Date().toISOString()\n    }\n  }\n}];"
+        "jsCode": "// Aggregate final results\n// Note: KB writes are handled internally by the synthesis endpoint\nconst mergeData = $('Merge Triggers').first().json;\nconst agentResult = $('Call Synthesis Agent').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      week_start: mergeData.week_start,\n      week_end: mergeData.week_end,\n      volume: agentResult.data?.volume,\n      top_themes_count: (agentResult.data?.top_themes || []).length,\n      recommendations_count: (agentResult.data?.recommendations || []).length,\n      kb_updates_written: agentResult.data?.kb_updates_written || 0,\n      report_url: agentResult.data?.report_url,\n      processed_at: new Date().toISOString()\n    }\n  }\n}];"
       },
       "id": "aggregate-results",
       "name": "Aggregate Results",
@@ -343,16 +279,6 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [2300, 350]
-    },
-    {
-      "parameters": {
-        "jsCode": "// No KB updates to write - continue to aggregate\nconst mergeData = $('Merge Triggers').first().json;\nconst agentResult = $('Call Synthesis Agent').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      week_start: mergeData.week_start,\n      week_end: mergeData.week_end,\n      volume: agentResult.data?.volume,\n      top_themes_count: (agentResult.data?.top_themes || []).length,\n      recommendations_count: (agentResult.data?.recommendations || []).length,\n      kb_updates_written: 0,\n      report_url: agentResult.data?.report_url,\n      processed_at: new Date().toISOString()\n    }\n  }\n}];"
-      },
-      "id": "skip-kb-write",
-      "name": "Skip KB Write",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1700, 350]
     },
     {
       "parameters": {
@@ -541,46 +467,6 @@
       "main": [
         [
           {
-            "node": "Has KB Updates?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Has KB Updates?": {
-      "main": [
-        [
-          {
-            "node": "Write to KB",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Skip KB Write",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Write to KB": {
-      "main": [
-        [
-          {
-            "node": "Aggregate Results",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Skip KB Write": {
-      "main": [
-        [
-          {
             "node": "Aggregate Results",
             "type": "main",
             "index": 0
@@ -680,7 +566,7 @@
   "notes": [
     {
       "id": "note-1",
-      "content": "## Learning Loop - Weekly Synthesis\n\n### Purpose\nGenerate weekly synthesis reports and update KB with validated insights every Monday.\n\n### Triggers\n1. **Cron**: Every Monday at 8:00 AM UTC\n2. **Manual Webhook**: HTTP POST for ad-hoc synthesis\n\n### Environment Variables Required:\n- `WEBHOOK_SECRET`: Secret for authenticating webhook requests\n- `AGENT_BASE_URL`: URL of the agent service (default: http://localhost:3001)\n- `SLACK_REPORTS_CHANNEL`: Channel for weekly reports (default: #gtm-reports)\n- `SLACK_ALERTS_CHANNEL`: Channel for errors (default: #gtm-alerts)\n- `DEFAULT_BRAIN_ID`: Default brain for synthesis\n\n### Workflow Flow:\n1. **Triggers**: Cron (Mon 8 AM UTC) or Manual webhook\n2. **Build Request**: Calculate last week's date range\n3. **Call Synthesis Agent**: 300s timeout (5 min), 3 retries\n4. **Slack Weekly Report**: Send Block Kit formatted report\n5. **Write to KB**: If validated insights exist, write to Qdrant\n6. **Aggregate Results**: Combine all data for response\n\n### Manual Request Format:\n```json\n{\n  \"week_start\": \"2024-01-08\",\n  \"week_end\": \"2024-01-14\",\n  \"brain_id\": \"default\",\n  \"config\": {\n    \"include_template_performance\": true,\n    \"generate_recommendations\": true\n  }\n}\n```\n\n### Test with curl:\n```bash\ncurl -X POST http://localhost:5678/webhook/learning-loop-weekly \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $WEBHOOK_SECRET\" \\\n  -d '{}'\n```\n\n### Weekly Report Format:\n```\n📈 *Weekly Learning Report*\n*Week of Jan 8-14, 2024*\n\n*📊 Volume*\n• Insights extracted: 47\n• Validated & added to KB: 32\n• Rejected: 8\n• Pending review: 7\n\n*🎯 Top Themes*\n1. **Budget objection reframe** (8 instances)\n2. **Competitor X weakness** (6 instances)\n\n*📧 Template Performance*\n• Cold intro v3: 245 sends, 11.4% ⬆️\n\n*💡 Recommendations*\n1. Retire \"Follow-up v2\" - underperforming\n\n[📄 Full Report] [📊 Dashboard]\n```",
+      "content": "## Learning Loop - Weekly Synthesis\n\n### Purpose\nGenerate weekly synthesis reports and update KB with validated insights every Monday.\n\n### Triggers\n1. **Cron**: Every Monday at 8:00 AM UTC\n2. **Manual Webhook**: HTTP POST for ad-hoc synthesis\n\n### Environment Variables Required:\n- `WEBHOOK_SECRET`: Secret for authenticating webhook requests\n- `LEARNING_LOOP_URL`: URL of the Learning Loop agent (default: http://localhost:4004)\n- `SLACK_REPORTS_CHANNEL`: Channel for weekly reports (default: #gtm-reports)\n- `SLACK_ALERTS_CHANNEL`: Channel for errors (default: #gtm-alerts)\n- `DEFAULT_BRAIN_ID`: Default brain for synthesis\n\n### Workflow Flow:\n1. **Triggers**: Cron (Mon 8 AM UTC) or Manual webhook\n2. **Build Request**: Calculate last week's date range\n3. **Call Synthesis Agent**: 300s timeout (5 min), 3 retries (KB writes handled internally by agent)\n4. **Slack Weekly Report**: Send Block Kit formatted report\n5. **Aggregate Results**: Combine all data for response\n\n### Manual Request Format:\n```json\n{\n  \"week_start\": \"2024-01-08\",\n  \"week_end\": \"2024-01-14\",\n  \"brain_id\": \"default\",\n  \"config\": {\n    \"include_template_performance\": true,\n    \"generate_recommendations\": true\n  }\n}\n```\n\n### Test with curl:\n```bash\ncurl -X POST http://localhost:5678/webhook/learning-loop-weekly \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Webhook-Secret: $WEBHOOK_SECRET\" \\\n  -d '{}'\n```\n\n### Weekly Report Format:\n```\n📈 *Weekly Learning Report*\n*Week of Jan 8-14, 2024*\n\n*📊 Volume*\n• Insights extracted: 47\n• Validated & added to KB: 32\n• Rejected: 8\n• Pending review: 7\n\n*🎯 Top Themes*\n1. **Budget objection reframe** (8 instances)\n2. **Competitor X weakness** (6 instances)\n\n*📧 Template Performance*\n• Cold intro v3: 245 sends, 11.4% ⬆️\n\n*💡 Recommendations*\n1. Retire \"Follow-up v2\" - underperforming\n\n[📄 Full Report] [📊 Dashboard]\n```",
       "position": [100, 700]
     }
   ]
