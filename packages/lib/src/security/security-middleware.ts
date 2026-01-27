@@ -13,8 +13,9 @@ import type {
   PIIType,
   PIIPosition,
   LakeraGuardResponse,
+  ResultSource,
 } from './types';
-import { DEFAULT_SECURITY_CONFIG } from './types';
+import { DEFAULT_SECURITY_CONFIG, getLakeraDebugConfig } from './types';
 import {
   getLakeraGuard,
   isLakeraGuardEnabled,
@@ -42,16 +43,53 @@ function getCacheKey(content: string): string {
 /**
  * Check if a cached result is still valid
  */
-function getCachedResult(content: string): SecurityScreeningResult | null {
+function getCachedResult(content: string, requestId: string): SecurityScreeningResult | null {
+  const debugConfig = getLakeraDebugConfig();
+
+  // Skip cache if disabled via env var
+  if (debugConfig.disableCache) {
+    console.log(JSON.stringify({
+      event: 'security_cache_disabled',
+      requestId,
+      reason: 'LAKERA_DISABLE_CACHE=true',
+      timestamp: new Date().toISOString(),
+    }));
+    return null;
+  }
+
   const key = getCacheKey(content);
   const cached = screeningCache.get(key);
 
   if (cached && cached.expires > Date.now()) {
-    return cached.result;
+    const expiresInMs = cached.expires - Date.now();
+    console.log(JSON.stringify({
+      event: 'security_cache_hit',
+      requestId,
+      cacheKey: key,
+      expiresInSeconds: Math.round(expiresInMs / 1000),
+      originalResultSource: cached.result.resultSource,
+      passed: cached.result.passed,
+      timestamp: new Date().toISOString(),
+    }));
+    // Return cached result with updated source to indicate it came from cache
+    return { ...cached.result, resultSource: 'cache' };
   }
 
   if (cached) {
     screeningCache.delete(key);
+    console.log(JSON.stringify({
+      event: 'security_cache_expired',
+      requestId,
+      cacheKey: key,
+      timestamp: new Date().toISOString(),
+    }));
+  } else {
+    console.log(JSON.stringify({
+      event: 'security_cache_miss',
+      requestId,
+      cacheKey: key,
+      timestamp: new Date().toISOString(),
+    }));
   }
 
   return null;
@@ -143,8 +181,8 @@ export class SecurityMiddleware {
   ): Promise<SecurityScreeningResult> {
     const reqId = requestId ?? crypto.randomUUID();
 
-    // Check cache first
-    const cached = getCachedResult(content);
+    // Check cache first (cache function now handles requestId logging)
+    const cached = getCachedResult(content, reqId);
     if (cached) {
       return cached;
     }
@@ -160,6 +198,7 @@ export class SecurityMiddleware {
           latencyMs: 0,
         },
         reason: 'Security screening disabled - Lakera Guard not configured',
+        resultSource: 'guard_disabled',
       };
 
       logSecurityEvent({
@@ -168,8 +207,18 @@ export class SecurityMiddleware {
         action: 'allow',
         passed: true,
         latencyMs: 0,
-        metadata: { reason: 'guard_not_configured' },
+        metadata: { reason: 'guard_not_configured', resultSource: 'guard_disabled' },
       });
+
+      // Log prominently that guard is disabled
+      console.log(JSON.stringify({
+        event: 'security_screening_skipped',
+        requestId: reqId,
+        source,
+        reason: 'guard_not_configured',
+        resultSource: 'guard_disabled',
+        timestamp: new Date().toISOString(),
+      }));
 
       return result;
     }
@@ -303,9 +352,10 @@ export class SecurityMiddleware {
       sanitizedContent,
       guardResponse,
       reason,
+      resultSource: 'api',
     };
 
-    // Log the security event
+    // Log the security event with result source
     logSecurityEvent({
       requestId,
       source,
@@ -319,8 +369,23 @@ export class SecurityMiddleware {
       metadata: {
         flagged: guardResponse.flagged,
         categories: guardResponse.categories.filter(c => c.detected).map(c => c.category),
+        resultSource: 'api',
       },
     });
+
+    // Log successful API screening
+    console.log(JSON.stringify({
+      event: 'security_screening_complete',
+      requestId,
+      source,
+      resultSource: 'api',
+      passed,
+      action,
+      threatCategory: threatCategory ?? null,
+      severity: severity ?? null,
+      latencyMs: guardResponse.latencyMs,
+      timestamp: new Date().toISOString(),
+    }));
 
     // Cache the result
     cacheResult(content, result, this.config.cacheTTLSeconds);
@@ -339,6 +404,7 @@ export class SecurityMiddleware {
   ): SecurityScreeningResult {
     const action: ThreatAction = this.config.failOpen ? 'allow' : 'block';
     const passed = this.config.failOpen;
+    const failMode = this.config.failOpen ? 'FAIL_OPEN' : 'FAIL_CLOSED';
 
     const result: SecurityScreeningResult = {
       passed,
@@ -349,9 +415,10 @@ export class SecurityMiddleware {
         latencyMs: 0,
       },
       reason: `Security screening error: ${errorMessage}. ${this.config.failOpen ? 'Failing open.' : 'Failing closed.'}`,
+      resultSource: 'api_error',
     };
 
-    // Log the failure
+    // Log the failure with high visibility
     logSecurityEvent({
       requestId,
       source,
@@ -361,8 +428,37 @@ export class SecurityMiddleware {
       metadata: {
         error: errorMessage,
         failOpen: this.config.failOpen,
+        resultSource: 'api_error',
       },
     });
+
+    // CRITICAL: Make failures highly visible in logs
+    console.error(JSON.stringify({
+      event: 'security_screening_failure',
+      level: 'error',
+      requestId,
+      source,
+      error: errorMessage,
+      failMode,
+      action,
+      passed,
+      resultSource: 'api_error',
+      message: `Security screening FAILED - ${failMode}: ${errorMessage}`,
+      timestamp: new Date().toISOString(),
+    }));
+
+    // Additional warning for fail-open mode
+    if (this.config.failOpen) {
+      console.warn(JSON.stringify({
+        event: 'security_fail_open_warning',
+        level: 'warn',
+        requestId,
+        source,
+        message: 'Security screening failed but request ALLOWED due to failOpen=true. This may expose system to unscreened content.',
+        error: errorMessage,
+        timestamp: new Date().toISOString(),
+      }));
+    }
 
     return result;
   }

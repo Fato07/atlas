@@ -29,6 +29,12 @@ import {
 import type { LearningLoopStateManager } from './state';
 import { getLogger } from './logger';
 
+// Security imports
+import {
+  isLakeraGuardEnabled,
+  screenWebhookInput,
+} from '@atlas-gtm/lib/security';
+
 // ===========================================
 // Types
 // ===========================================
@@ -210,12 +216,37 @@ export class LearningLoopWebhookRouter {
       return this.errorResponse(HTTP_STATUS.BAD_REQUEST, 'Invalid request body', parseResult.error.errors);
     }
 
+    // Security screening for insight content
+    let requestData = parseResult.data;
+    if (isLakeraGuardEnabled()) {
+      const securityResult = await screenWebhookInput(
+        requestData,
+        'learning_loop_insight_webhook',
+        crypto.randomUUID()
+      );
+
+      if (!securityResult.passed) {
+        logger.warn('Security blocked insight extraction request', {
+          reason: securityResult.reason,
+          source_id: requestData.source_id,
+        });
+        return this.errorResponse(
+          403,
+          securityResult.reason || 'Request blocked by security'
+        );
+      }
+
+      if (securityResult.sanitizedData) {
+        requestData = securityResult.sanitizedData as typeof requestData;
+      }
+    }
+
     if (!this.insightHandler) {
       return this.errorResponse(HTTP_STATUS.INTERNAL_SERVER_ERROR, 'Insight handler not configured');
     }
 
     try {
-      const response = await this.insightHandler(parseResult.data);
+      const response = await this.insightHandler(requestData);
       return { status: HTTP_STATUS.OK, body: response };
     } catch (error) {
       logger.error('Insight extraction failed', {
@@ -241,12 +272,37 @@ export class LearningLoopWebhookRouter {
       return this.errorResponse(HTTP_STATUS.BAD_REQUEST, 'Invalid request body', parseResult.error.errors);
     }
 
+    // Security screening for validation callback (may contain user feedback)
+    let requestData = parseResult.data;
+    if (isLakeraGuardEnabled()) {
+      const securityResult = await screenWebhookInput(
+        requestData,
+        'learning_loop_validation_webhook',
+        crypto.randomUUID()
+      );
+
+      if (!securityResult.passed) {
+        logger.warn('Security blocked validation callback request', {
+          reason: securityResult.reason,
+          user_id: requestData.user.id,
+        });
+        return this.errorResponse(
+          403,
+          securityResult.reason || 'Request blocked by security'
+        );
+      }
+
+      if (securityResult.sanitizedData) {
+        requestData = securityResult.sanitizedData as typeof requestData;
+      }
+    }
+
     if (!this.validationHandler) {
       return this.errorResponse(HTTP_STATUS.INTERNAL_SERVER_ERROR, 'Validation handler not configured');
     }
 
     try {
-      const response = await this.validationHandler(parseResult.data);
+      const response = await this.validationHandler(requestData);
       return { status: HTTP_STATUS.OK, body: response };
     } catch (error) {
       logger.error('Validation callback failed', {

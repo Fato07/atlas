@@ -18,7 +18,8 @@ export type AgentName =
   | 'lead_scorer'
   | 'reply_handler'
   | 'meeting_prep'
-  | 'insight_extractor';
+  | 'insight_extractor'
+  | 'learning_loop';
 
 // ===========================================
 // Trace Types
@@ -82,13 +83,25 @@ export type ScoreDataType = 'NUMERIC' | 'CATEGORICAL' | 'BOOLEAN';
 
 /** Custom score names for Atlas GTM */
 export type AtlasScoreName =
+  // Lead Scorer
   | 'lead_scoring_accuracy'
   | 'angle_quality'
   | 'tier_correctness'
   | 'vertical_confidence'
   | 'rule_match_quality'
+  // Reply Handler
   | 'response_relevance'
-  | 'classification_accuracy';
+  | 'classification_accuracy'
+  | 'personalization_quality'
+  | 'category_confidence'
+  // Meeting Prep
+  | 'brief_quality'
+  | 'bant_extraction_confidence'
+  | 'context_completeness'
+  // Learning Loop
+  | 'insight_extraction_quality'
+  | 'insight_validation_rate'
+  | 'kb_write_success_rate';
 
 /** Input for creating a score */
 export interface CreateScoreInput {

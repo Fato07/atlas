@@ -104,6 +104,11 @@ export interface LakeraGuardResponse {
 }
 
 /**
+ * Source of the security screening result
+ */
+export type ResultSource = 'api' | 'cache' | 'guard_disabled' | 'api_error';
+
+/**
  * Security screening result with action
  */
 export interface SecurityScreeningResult {
@@ -141,6 +146,15 @@ export interface SecurityScreeningResult {
    * Human-readable reason for the action
    */
   reason?: string;
+
+  /**
+   * Source of the result for debugging
+   * - 'api': Fresh result from Lakera Guard API
+   * - 'cache': Result from in-memory cache
+   * - 'guard_disabled': Guard not configured/disabled
+   * - 'api_error': API call failed (failOpen applied)
+   */
+  resultSource: ResultSource;
 }
 
 /**
@@ -260,6 +274,41 @@ export interface SecurityAuditEntry {
    * Additional metadata
    */
   metadata?: Record<string, unknown>;
+}
+
+/**
+ * Debug configuration for Lakera Guard integration
+ * Controlled via environment variables
+ */
+export interface LakeraDebugConfig {
+  /**
+   * Enable verbose logging of API requests/responses
+   * Set via LAKERA_DEBUG=true
+   */
+  debug: boolean;
+
+  /**
+   * Disable caching for debugging (always hits API)
+   * Set via LAKERA_DISABLE_CACHE=true
+   */
+  disableCache: boolean;
+
+  /**
+   * Explicitly disable Guard (useful for local development)
+   * Set via LAKERA_GUARD_ENABLED=false
+   */
+  enabled: boolean;
+}
+
+/**
+ * Get debug configuration from environment variables
+ */
+export function getLakeraDebugConfig(): LakeraDebugConfig {
+  return {
+    debug: process.env.LAKERA_DEBUG === 'true',
+    disableCache: process.env.LAKERA_DISABLE_CACHE === 'true',
+    enabled: process.env.LAKERA_GUARD_ENABLED !== 'false', // Default enabled
+  };
 }
 
 /**

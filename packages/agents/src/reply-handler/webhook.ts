@@ -11,11 +11,27 @@
  *
  * Implements FR-024 (webhook receiver), FR-025 (security).
  *
+ * Observability: Initializes Langfuse on startup when environment
+ * variables are configured.
+ *
+ * Security: Initializes Lakera Guard for prompt injection detection
+ * and PII masking when API key is configured.
+ *
  * @module reply-handler/webhook
  */
 
 // Bun server type
 import { z } from 'zod';
+import {
+  initLangfuse,
+  shutdownLangfuse,
+  isLangfuseEnabled,
+} from '@atlas-gtm/lib/observability';
+import {
+  initLakeraGuard,
+  isLakeraGuardEnabled,
+  screenWebhookInput,
+} from '@atlas-gtm/lib/security';
 import type { ReplyInput } from './contracts/reply-input';
 import {
   parseReplyInput,
@@ -285,7 +301,34 @@ async function handleInstantlyWebhook(
   }
 
   // Convert to ReplyInput
-  const replyInput = webhookToReplyInput(parseResult.data, config.brainId);
+  let replyInput = webhookToReplyInput(parseResult.data, config.brainId);
+
+  // Security screening for prompt injection and PII
+  if (isLakeraGuardEnabled()) {
+    const securityResult = await screenWebhookInput(
+      replyInput,
+      'reply_handler_instantly_webhook',
+      crypto.randomUUID()
+    );
+
+    if (!securityResult.passed) {
+      console.warn('Security screening blocked Instantly webhook', {
+        reason: securityResult.reason,
+        reply_id: replyInput.reply_id,
+      });
+
+      return errorResponse(
+        securityResult.reason || 'Request blocked by security',
+        HTTP_STATUS.FORBIDDEN,
+        'ERR_SECURITY_BLOCKED'
+      );
+    }
+
+    // Use sanitized data if PII was masked
+    if (securityResult.sanitizedData) {
+      replyInput = securityResult.sanitizedData as typeof replyInput;
+    }
+  }
 
   // Process the reply
   try {
@@ -338,7 +381,34 @@ async function handleHeyReachWebhook(
   }
 
   // Convert to ReplyInput
-  const replyInput = heyreachWebhookToReplyInput(parseResult.data, config.brainId);
+  let replyInput = heyreachWebhookToReplyInput(parseResult.data, config.brainId);
+
+  // Security screening for prompt injection and PII
+  if (isLakeraGuardEnabled()) {
+    const securityResult = await screenWebhookInput(
+      replyInput,
+      'reply_handler_heyreach_webhook',
+      crypto.randomUUID()
+    );
+
+    if (!securityResult.passed) {
+      console.warn('Security screening blocked HeyReach webhook', {
+        reason: securityResult.reason,
+        reply_id: replyInput.reply_id,
+      });
+
+      return errorResponse(
+        securityResult.reason || 'Request blocked by security',
+        HTTP_STATUS.FORBIDDEN,
+        'ERR_SECURITY_BLOCKED'
+      );
+    }
+
+    // Use sanitized data if PII was masked
+    if (securityResult.sanitizedData) {
+      replyInput = securityResult.sanitizedData as typeof replyInput;
+    }
+  }
 
   // Process the reply
   try {
@@ -608,9 +678,37 @@ export function createRequestHandler(config: WebhookConfig) {
 
 /**
  * Create and start webhook server
+ *
+ * Initializes:
+ * - Langfuse observability (from LANGFUSE_* env vars)
+ * - Lakera Guard security (from LAKERA_GUARD_API_KEY env var)
  */
 export function createWebhookServer(config: WebhookConfig) {
   serverStartTime = Date.now();
+
+  // Initialize Langfuse for observability (auto-enabled from env vars)
+  try {
+    const langfuse = initLangfuse();
+    if (langfuse !== null) {
+      console.log('Reply Handler: Langfuse observability initialized');
+    }
+  } catch (error) {
+    console.warn('Reply Handler: Failed to initialize Langfuse', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // Initialize Lakera Guard for security (auto-enabled from env vars)
+  try {
+    initLakeraGuard();
+    if (isLakeraGuardEnabled()) {
+      console.log('Reply Handler: Lakera Guard security initialized');
+    }
+  } catch (error) {
+    console.warn('Reply Handler: Failed to initialize Lakera Guard', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   const handler = createRequestHandler(config);
 
@@ -620,6 +718,16 @@ export function createWebhookServer(config: WebhookConfig) {
   });
 
   console.log(`Reply Handler webhook server listening on port ${config.port}`);
+
+  // Add shutdown handler for graceful cleanup
+  process.on('SIGTERM', async () => {
+    console.log('Reply Handler: Shutting down...');
+    if (isLangfuseEnabled()) {
+      await shutdownLangfuse();
+      console.log('Reply Handler: Langfuse shutdown complete');
+    }
+    server.stop();
+  });
 
   return server;
 }

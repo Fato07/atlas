@@ -790,6 +790,23 @@ The system includes three critical operational layers for production reliability
 
 **Integration Point**: All inputs are screened before reaching the Intelligence Layer.
 
+**Agent Coverage** (all 4 agents implemented):
+
+| Agent | Webhook Screening | LLM Call Screening |
+|-------|-------------------|-------------------|
+| Lead Scorer | `/webhook/score-lead` | Angle generation calls |
+| Reply Handler | `/webhook/handle-reply` (Instantly, HeyReach webhooks) | Classification, response generation |
+| Meeting Prep | `/webhook/meeting-prep/brief`, `/analyze` | Brief generation, transcript analysis |
+| Learning Loop | `/webhook/learning-loop/extract`, `/validate` | Insight extraction calls |
+
+**Configuration**:
+```bash
+LAKERA_GUARD_API_KEY=your-api-key    # Required to enable
+LAKERA_PROJECT_ID=atlas-gtm          # Optional
+```
+
+**Graceful Degradation**: When `LAKERA_GUARD_API_KEY` is not set, agents operate normally without security screening. When API errors occur, requests are allowed with warning logged (fail-open).
+
 ### Observability Layer (Langfuse)
 
 | Capability | Purpose | Metrics |
@@ -800,6 +817,24 @@ The system includes three critical operational layers for production reliability
 | Session Tracking | Group related operations | Brain context, vertical |
 
 **Integration Point**: Wraps all agent operations and LLM calls.
+
+**Agent Coverage** (all 4 agents implemented):
+
+| Agent | Trace Name | Key Scores |
+|-------|------------|------------|
+| Lead Scorer | `lead_scorer` | `lead_scoring_accuracy`, `tier_correctness`, `vertical_confidence` |
+| Reply Handler | `reply_handler` | `classification_accuracy`, `response_relevance`, `category_confidence` |
+| Meeting Prep | `meeting_prep` | `brief_quality`, `bant_confidence`, `context_completeness` |
+| Learning Loop | `learning_loop` | `insight_quality`, `insight_validation_rate`, `kb_write_success_rate` |
+
+**Configuration**:
+```bash
+LANGFUSE_PUBLIC_KEY=pk-xxx           # Required to enable
+LANGFUSE_SECRET_KEY=sk-xxx           # Required to enable
+LANGFUSE_HOST=https://cloud.langfuse.com  # Default
+```
+
+**Graceful Degradation**: When Langfuse keys are not set, tracing functions return `null` and agents operate normally. All agents register SIGTERM handlers to flush traces before shutdown.
 
 ### Evaluation Layer (Ragas)
 

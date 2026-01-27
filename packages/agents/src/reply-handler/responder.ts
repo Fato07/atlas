@@ -4,11 +4,17 @@
  * Generates personalized responses by filling templates with lead context
  * and applying Claude personalization. Implements FR-012, FR-013, FR-014.
  *
+ * Security: Uses Lakera Guard to screen content before LLM calls.
+ *
  * @module reply-handler/responder
  */
 
 import Anthropic from '@anthropic-ai/sdk';
 import { extractToolResult, forceToolChoice } from '@atlas-gtm/lib';
+import {
+  isLakeraGuardEnabled,
+  screenBeforeLLM,
+} from '@atlas-gtm/lib/security';
 import type { KBMatch } from './contracts/handler-result';
 import type { LeadContext } from './contracts/reply-input';
 import { RESPONSE_TOOL, type PersonalizedResponse } from './contracts/response-tool';
@@ -192,12 +198,32 @@ export class ResponseGenerator {
     const { template, instructions, leadContext, replyText, threadContext } = params;
 
     const systemPrompt = this.buildPersonalizationSystemPrompt(instructions);
-    const userPrompt = this.buildPersonalizationUserPrompt(
+    let userPrompt = this.buildPersonalizationUserPrompt(
       template,
       leadContext,
       replyText,
       threadContext
     );
+
+    // Security screening before LLM call
+    if (isLakeraGuardEnabled()) {
+      const securityResult = await screenBeforeLLM(
+        userPrompt,
+        'reply_responder_personalization'
+      );
+
+      if (!securityResult.passed) {
+        // Return original template when security blocks the content
+        console.warn('Security blocked personalization:', securityResult.reason);
+        return {
+          text: template,
+          tokensUsed: 0,
+        };
+      }
+
+      // Use sanitized content if PII was masked
+      userPrompt = securityResult.sanitizedContent ?? userPrompt;
+    }
 
     try {
       // Use structured outputs via tool use pattern

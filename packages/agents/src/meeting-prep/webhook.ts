@@ -34,6 +34,21 @@ import {
   errorResponse as createErrorResponse,
 } from './contracts/webhook-api';
 
+// Security imports
+import {
+  initLakeraGuard,
+  isLakeraGuardEnabled,
+  screenWebhookInput,
+} from '@atlas-gtm/lib/security';
+
+// Observability imports
+import {
+  initLangfuse,
+  shutdownLangfuse,
+  isLangfuseEnabled,
+  flushLangfuse,
+} from '@atlas-gtm/lib/observability';
+
 // ===========================================
 // Webhook Configuration
 // ===========================================
@@ -218,9 +233,32 @@ async function handleBriefWebhook(
     );
   }
 
+  // Security screening if enabled
+  let briefRequest = parseResult.data;
+  if (isLakeraGuardEnabled()) {
+    const securityResult = await screenWebhookInput(
+      briefRequest,
+      'meeting_prep_brief_webhook',
+      crypto.randomUUID()
+    );
+
+    if (!securityResult.passed) {
+      return httpErrorResponse(
+        securityResult.reason || 'Request blocked by security',
+        HTTP_STATUS.FORBIDDEN,
+        ErrorCodes.INVALID_REQUEST
+      );
+    }
+
+    // Use sanitized data if PII was masked
+    if (securityResult.sanitizedData) {
+      briefRequest = securityResult.sanitizedData as typeof briefRequest;
+    }
+  }
+
   // Process the brief request
   try {
-    const result = await config.agent.generateBriefFromWebhook(parseResult.data);
+    const result = await config.agent.generateBriefFromWebhook(briefRequest);
 
     return jsonResponse(result, result.success ? HTTP_STATUS.OK : HTTP_STATUS.INTERNAL_ERROR);
   } catch (error) {
@@ -272,9 +310,32 @@ async function handleManualBriefWebhook(
     );
   }
 
+  // Security screening if enabled
+  let manualRequest = parseResult.data;
+  if (isLakeraGuardEnabled()) {
+    const securityResult = await screenWebhookInput(
+      manualRequest,
+      'meeting_prep_manual_webhook',
+      crypto.randomUUID()
+    );
+
+    if (!securityResult.passed) {
+      return httpErrorResponse(
+        securityResult.reason || 'Request blocked by security',
+        HTTP_STATUS.FORBIDDEN,
+        ErrorCodes.INVALID_REQUEST
+      );
+    }
+
+    // Use sanitized data if PII was masked
+    if (securityResult.sanitizedData) {
+      manualRequest = securityResult.sanitizedData as typeof manualRequest;
+    }
+  }
+
   // Process the manual brief request
   try {
-    const result = await config.agent.generateBriefManual(parseResult.data);
+    const result = await config.agent.generateBriefManual(manualRequest);
 
     return jsonResponse(result, result.success ? HTTP_STATUS.OK : HTTP_STATUS.INTERNAL_ERROR);
   } catch (error) {
@@ -326,9 +387,32 @@ async function handleAnalyzeWebhook(
     );
   }
 
+  // Security screening if enabled
+  let analysisRequest = parseResult.data;
+  if (isLakeraGuardEnabled()) {
+    const securityResult = await screenWebhookInput(
+      analysisRequest,
+      'meeting_prep_analyze_webhook',
+      crypto.randomUUID()
+    );
+
+    if (!securityResult.passed) {
+      return httpErrorResponse(
+        securityResult.reason || 'Request blocked by security',
+        HTTP_STATUS.FORBIDDEN,
+        ErrorCodes.INVALID_REQUEST
+      );
+    }
+
+    // Use sanitized data if PII was masked
+    if (securityResult.sanitizedData) {
+      analysisRequest = securityResult.sanitizedData as typeof analysisRequest;
+    }
+  }
+
   // Process the analysis request
   try {
-    const result = await config.agent.analyzeTranscript(parseResult.data);
+    const result = await config.agent.analyzeTranscript(analysisRequest);
 
     return jsonResponse(result, result.success ? HTTP_STATUS.OK : HTTP_STATUS.INTERNAL_ERROR);
   } catch (error) {
@@ -508,11 +592,46 @@ export function createRequestHandler(config: MeetingPrepWebhookConfig) {
 export function createWebhookServer(config: MeetingPrepWebhookConfig) {
   serverStartTime = Date.now();
 
+  // Initialize observability (Langfuse)
+  if (isLangfuseEnabled()) {
+    try {
+      initLangfuse();
+      console.log('Meeting Prep: Langfuse observability initialized');
+    } catch (err) {
+      console.warn('Meeting Prep: Failed to initialize Langfuse:', err);
+    }
+  }
+
+  // Initialize security (Lakera Guard)
+  if (isLakeraGuardEnabled()) {
+    try {
+      initLakeraGuard();
+      console.log('Meeting Prep: Lakera Guard security initialized');
+    } catch (err) {
+      console.warn('Meeting Prep: Failed to initialize Lakera Guard:', err);
+    }
+  }
+
   const handler = createRequestHandler(config);
 
   const server = Bun.serve({
     port: config.port,
     fetch: handler,
+  });
+
+  // Graceful shutdown handler
+  process.on('SIGTERM', async () => {
+    console.log('Meeting Prep: Shutting down...');
+    try {
+      // Flush pending Langfuse traces
+      if (isLangfuseEnabled()) {
+        await flushLangfuse();
+        await shutdownLangfuse();
+      }
+    } catch (err) {
+      console.warn('Meeting Prep: Error during shutdown:', err);
+    }
+    process.exit(0);
   });
 
   console.log(`Meeting Prep webhook server listening on port ${config.port}`);

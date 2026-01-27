@@ -40,9 +40,11 @@ export type {
   SecurityScreeningResult,
   SecurityScreeningConfig,
   SecurityAuditEntry,
+  ResultSource,
+  LakeraDebugConfig,
 } from './types';
 
-export { DEFAULT_SECURITY_CONFIG } from './types';
+export { DEFAULT_SECURITY_CONFIG, getLakeraDebugConfig } from './types';
 
 // Lakera Guard Client
 export {

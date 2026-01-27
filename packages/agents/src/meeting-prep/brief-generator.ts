@@ -11,6 +11,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam, ContentBlock, Message } from '@anthropic-ai/sdk/resources/messages';
 import { buildTool, extractToolResult, forceToolChoice } from '@atlas-gtm/lib';
 import type { BrainId } from '@atlas-gtm/lib';
+import {
+  isLakeraGuardEnabled,
+  screenBeforeLLM,
+} from '@atlas-gtm/lib/security';
 
 import { BriefContentSchema, type BriefContent } from './contracts/brief';
 import type { GatheredContext } from './types';
@@ -129,6 +133,39 @@ export class BriefGenerator {
         const compactedMessages = this.compactMessages(messages, context);
         messages.length = 0;
         messages.push(...compactedMessages);
+      }
+
+      // Security screening before Claude API call
+      if (isLakeraGuardEnabled()) {
+        // Extract the user message content for screening
+        const userContent = messages
+          .map(m => typeof m.content === 'string' ? m.content : '')
+          .join('\n');
+
+        const securityResult = await screenBeforeLLM(
+          userContent,
+          'meeting_prep_brief_generator'
+        );
+
+        if (!securityResult.passed) {
+          this.deps.logger.warn('Security blocked brief generation', {
+            reason: securityResult.reason,
+            meeting_id: meeting.meeting_id,
+          });
+          return {
+            success: false,
+            error: `Security blocked: ${securityResult.reason}`,
+            code: 'GENERATION_ERROR',
+          };
+        }
+
+        // Use sanitized content if PII was masked
+        if (securityResult.sanitizedContent) {
+          messages[0] = {
+            role: 'user',
+            content: securityResult.sanitizedContent,
+          };
+        }
       }
 
       // Call Claude with structured output (non-streaming)

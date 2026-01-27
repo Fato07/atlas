@@ -5,11 +5,17 @@
  * Implements FR-002 (intent classification), FR-003 (sentiment analysis),
  * and FR-004 (complexity assessment).
  *
+ * Security: Uses Lakera Guard to screen content before LLM calls.
+ *
  * @module reply-handler/classifier
  */
 
 import Anthropic from '@anthropic-ai/sdk';
 import { extractToolResult, forceToolChoice } from '@atlas-gtm/lib';
+import {
+  isLakeraGuardEnabled,
+  screenBeforeLLM,
+} from '@atlas-gtm/lib/security';
 import type {
   Classification,
   Intent,
@@ -225,7 +231,29 @@ export class ReplyClassifier {
     tokensUsed: number;
   }> {
     const systemPrompt = this.buildSystemPrompt();
-    const userPrompt = this.buildUserPrompt(params);
+    let userPrompt = this.buildUserPrompt(params);
+
+    // Security screening before LLM call
+    if (isLakeraGuardEnabled()) {
+      const securityResult = await screenBeforeLLM(
+        userPrompt,
+        'reply_classifier'
+      );
+
+      if (!securityResult.passed) {
+        // Return safe fallback when security blocks the content
+        return {
+          intent: 'unclear',
+          confidence: 0,
+          sentiment: 0,
+          reasoning: `Security blocked: ${securityResult.reason}`,
+          tokensUsed: 0,
+        };
+      }
+
+      // Use sanitized content if PII was masked
+      userPrompt = securityResult.sanitizedContent ?? userPrompt;
+    }
 
     // Use structured outputs via tool use pattern
     const response = await this.client.messages.create({
@@ -572,6 +600,29 @@ Use the classify_reply_category tool to provide your structured classification.`
 
   // Build user prompt
   let userPrompt = `Classify this ${params.channel} reply into Category A, B, or C:\n\n---\n${cleanContent}\n---`;
+
+  // Security screening before LLM call
+  if (isLakeraGuardEnabled()) {
+    const securityResult = await screenBeforeLLM(
+      userPrompt,
+      'reply_category_classifier'
+    );
+
+    if (!securityResult.passed) {
+      // Return safe fallback when security blocks the content
+      return {
+        category: 'C',
+        effectiveCategory: 'C',
+        confidence: 0,
+        reasoning: `Security blocked: ${securityResult.reason}`,
+        signals: [],
+        tokensUsed: 0,
+      };
+    }
+
+    // Use sanitized content if PII was masked
+    userPrompt = securityResult.sanitizedContent ?? userPrompt;
+  }
 
   if (params.leadContext) {
     const ctx = params.leadContext;

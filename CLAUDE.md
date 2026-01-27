@@ -51,6 +51,24 @@ When adding new dashboard entities:
 - Vector DB: Qdrant
 - Caching: Upstash Redis (serverless)
 - Workflows: n8n
+- Security: Lakera Guard (prompt injection detection, PII masking)
+- Observability: Langfuse (LLM tracing, agent metrics, quality scoring)
+
+### Environment Variables
+
+**Security & Observability** (optional - enables features when set):
+```bash
+# Lakera Guard - Prompt injection & PII detection
+LAKERA_GUARD_API_KEY=your-api-key    # From console.lakera.ai
+LAKERA_PROJECT_ID=atlas-gtm          # Optional: for Lakera dashboard tracking
+
+# Langfuse - LLM observability
+LANGFUSE_PUBLIC_KEY=pk-xxx           # From langfuse.com
+LANGFUSE_SECRET_KEY=sk-xxx
+LANGFUSE_HOST=https://cloud.langfuse.com  # Default: cloud.langfuse.com
+```
+
+Both features gracefully degrade when keys are not set - agents work without them.
 
 ### 3. Documentation Lookup (Context7 MCP)
 
@@ -171,6 +189,59 @@ State files contain PII - they're gitignored.
 - TypeScript: `kebab-case.ts`
 - State files: `{agent-name}-state.json`
 - Brain files: `brain_{vertical}_{timestamp}`
+
+### 5. Security & Observability Patterns
+
+All 4 agents implement consistent security screening and observability tracing:
+
+**Security Screening Pattern** (when Lakera Guard is enabled):
+```typescript
+import { initLakeraGuard, screenWebhookInput, screenBeforeLLM } from '@atlas-gtm/lib/security';
+
+// Initialize on server startup
+initLakeraGuard();
+
+// 1. Screen webhook input at entry point
+const inputResult = await screenWebhookInput(requestBody, 'agent_name', requestId);
+if (!inputResult.passed) return res.status(403).json({ error: inputResult.reason });
+
+// 2. Screen before every Claude API call
+const llmResult = await screenBeforeLLM(prompt, 'agent_name', requestId);
+if (!llmResult.passed) throw new Error(`Security blocked: ${llmResult.reason}`);
+const safePrompt = llmResult.sanitizedContent ?? prompt;  // PII masked if detected
+```
+
+**Observability Pattern** (when Langfuse is enabled):
+```typescript
+import { initLangfuse, createAgentTrace, endTrace, flushLangfuse } from '@atlas-gtm/lib/observability';
+
+// Initialize on server startup
+initLangfuse();
+
+// Create trace at start of operation
+const trace = createAgentTrace({
+  agentName: 'lead_scorer',  // 'reply_handler' | 'meeting_prep' | 'learning_loop'
+  metadata: { leadId, brainId },
+});
+
+try {
+  // ... do work ...
+  if (trace) endTrace(trace.traceId, { success: true, outputData });
+} catch (error) {
+  if (trace) endTrace(trace.traceId, { success: false, error: error.message });
+  throw error;
+} finally {
+  await flushLangfuse();  // Ensure traces are sent before shutdown
+}
+```
+
+**SIGTERM Handler** - All agents register handlers to flush observability data:
+```typescript
+process.on('SIGTERM', async () => {
+  await flushLangfuse();
+  process.exit(0);
+});
+```
 
 ## Architecture
 

@@ -19,6 +19,12 @@ import { createExtractedInsight } from './contracts';
 import type { ExtractionRequest, ExtractionResult, LearningLoopConfig } from './types';
 import { getLogger } from './logger';
 
+// Security imports
+import {
+  isLakeraGuardEnabled,
+  screenBeforeLLM,
+} from '@atlas-gtm/lib/security';
+
 // ===========================================
 // Types
 // ===========================================
@@ -166,6 +172,35 @@ export class InsightExtractor {
     const startTime = Date.now();
 
     try {
+      // Build user prompt
+      let userPrompt = buildExtractionUserPrompt(request);
+
+      // Security screening before Claude API call
+      if (isLakeraGuardEnabled()) {
+        const securityResult = await screenBeforeLLM(
+          userPrompt,
+          'learning_loop_insight_extractor'
+        );
+
+        if (!securityResult.passed) {
+          logger.warn('Security blocked insight extraction', {
+            reason: securityResult.reason,
+            source_id: request.source_id,
+          });
+          return {
+            success: false,
+            insights: [],
+            extraction_time_ms: Date.now() - startTime,
+            error: `Security blocked: ${securityResult.reason}`,
+          };
+        }
+
+        // Use sanitized content if PII was masked
+        if (securityResult.sanitizedContent) {
+          userPrompt = securityResult.sanitizedContent;
+        }
+      }
+
       // Call Claude for extraction
       const response = await this.client.messages.create({
         model: this.config.model,
@@ -175,7 +210,7 @@ export class InsightExtractor {
         messages: [
           {
             role: 'user',
-            content: buildExtractionUserPrompt(request),
+            content: userPrompt,
           },
         ],
       });

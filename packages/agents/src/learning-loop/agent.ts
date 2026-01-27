@@ -23,6 +23,16 @@ import type {
   KBWriteResult,
 } from './types';
 import { DEFAULT_CONFIG } from './types';
+import type { BrainId } from '@atlas-gtm/lib';
+
+// Observability imports
+import {
+  isLangfuseEnabled,
+  createAgentTrace,
+  endTrace,
+  flushLangfuse,
+  recordInsightQuality,
+} from '@atlas-gtm/lib/observability';
 
 // Component imports
 import { InsightExtractor, createInsightExtractor, type InsightExtractorConfig } from './insight-extractor';
@@ -229,7 +239,33 @@ export class LearningLoopAgent {
     const logger = getLogger();
     const startTime = Date.now();
 
+    // Initialize Langfuse trace if enabled
+    let traceId: string | undefined;
+    if (isLangfuseEnabled()) {
+      const traceContext = createAgentTrace({
+        name: `process_source_${request.source_id}`,
+        metadata: {
+          agentName: 'learning_loop',
+          brainId: request.brain_id as BrainId,
+          environment: (process.env.NODE_ENV as 'development' | 'production') ?? 'development',
+        },
+        input: {
+          sourceId: request.source_id,
+          sourceType: request.source_type,
+          leadId: request.lead.id,
+          companyName: request.lead.company_name,
+        },
+      });
+      traceId = traceContext?.traceId;
+    }
+
     if (!this.initialized) {
+      // End trace with error
+      if (traceId && isLangfuseEnabled()) {
+        endTrace(traceId, { error: 'Agent not initialized' });
+        flushLangfuse().catch(() => {});
+      }
+
       return {
         success: false,
         sourceId: request.source_id,
@@ -266,6 +302,12 @@ export class LearningLoopAgent {
           source_type: request.source_type,
         });
 
+        // End trace with extraction failure
+        if (traceId && isLangfuseEnabled()) {
+          endTrace(traceId, { error: errorMessage, stage: 'extraction_failed' });
+          flushLangfuse().catch(() => {});
+        }
+
         return {
           success: false,
           sourceId: request.source_id,
@@ -284,6 +326,12 @@ export class LearningLoopAgent {
         logger.info('No insights extracted', {
           source_id: request.source_id,
         });
+
+        // End trace with no insights
+        if (traceId && isLangfuseEnabled()) {
+          endTrace(traceId, { insightsExtracted: 0, stage: 'no_insights' });
+          flushLangfuse().catch(() => {});
+        }
 
         return {
           success: true,
@@ -340,6 +388,26 @@ export class LearningLoopAgent {
         processing_time_ms: processingTimeMs,
       });
 
+      // Record insight quality metrics and end trace
+      if (traceId && isLangfuseEnabled()) {
+        // Calculate average confidence from extracted insights
+        const avgConfidence = extractionResult.insights.length > 0
+          ? extractionResult.insights.reduce((sum, i) => sum + i.initial_confidence, 0) / extractionResult.insights.length
+          : 0;
+
+        await recordInsightQuality(traceId, insights.length, avgConfidence);
+
+        endTrace(traceId, {
+          insightsExtracted: insights.length,
+          autoApproved,
+          queued,
+          rejected,
+          avgConfidence,
+          processingTimeMs,
+        });
+        flushLangfuse().catch(() => {});
+      }
+
       return {
         success: true,
         sourceId: request.source_id,
@@ -362,6 +430,12 @@ export class LearningLoopAgent {
         source_id: request.source_id,
         source_type: request.source_type,
       });
+
+      // End trace with error
+      if (traceId && isLangfuseEnabled()) {
+        endTrace(traceId, { error: errorMessage, stage: 'processing_error' });
+        flushLangfuse().catch(() => {});
+      }
 
       return {
         success: false,

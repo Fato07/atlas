@@ -210,11 +210,76 @@ test: add integration tests for reply handler
 
 ## Security
 
+### General Security Rules
 - API keys in `.env` only - never commit
 - Brain data contains competitive intelligence - treat as confidential
 - State files contain lead PII - gitignored
 - Never log full lead records, only IDs
 
+### Lakera Guard Integration
+
+All 4 agents implement Lakera Guard security screening (when `LAKERA_GUARD_API_KEY` is set):
+
+| Agent | Webhook Screening | LLM Call Screening |
+|-------|-------------------|-------------------|
+| Lead Scorer | `/score-lead` | Angle generation |
+| Reply Handler | `/handle-reply` (Instantly, HeyReach) | Classification, response generation |
+| Meeting Prep | `/brief`, `/analyze` | Brief generation, transcript analysis |
+| Learning Loop | `/extract`, `/validate` | Insight extraction |
+
+**Screening Behavior**:
+- **Prompt Injection**: Blocked with 403 response, logged as critical alert
+- **PII Detection**: Masked in-place (e.g., `john@acme.com` → `[EMAIL_REDACTED]`), request continues
+- **Graceful Degradation**: When disabled, agents skip screening and process normally
+- **Fail-Open**: API errors log warning but allow request to proceed
+
+**Integration Points**:
+```typescript
+// Webhook entry - screen all incoming data
+const result = await screenWebhookInput(req.body, 'agent_name', requestId);
+
+// Before Claude API calls - screen prompts
+const result = await screenBeforeLLM(prompt, 'agent_name', requestId);
+```
+
+See `specs/security.md` for full API reference and configuration options.
+
+## Observability
+
+All 4 agents implement Langfuse tracing (when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set):
+
+### Trace Structure
+
+Each agent operation creates a trace with:
+- **Trace ID**: Unique identifier for the operation
+- **Agent Name**: `lead_scorer` | `reply_handler` | `meeting_prep` | `learning_loop`
+- **Metadata**: Brain ID, lead/reply IDs, operation context
+- **Spans**: Sub-operations (KB queries, MCP calls, etc.)
+- **Generations**: Claude API calls with token counts
+- **Scores**: Quality metrics for the operation
+
+### Agent-Specific Metrics
+
+| Agent | Metrics Recorded |
+|-------|-----------------|
+| Lead Scorer | `lead_scoring_accuracy`, `tier_correctness`, `vertical_confidence`, `angle_quality`, `rule_match_quality` |
+| Reply Handler | `classification_accuracy`, `response_relevance`, `personalization_quality`, `category_confidence` |
+| Meeting Prep | `brief_quality`, `bant_confidence`, `context_completeness` |
+| Learning Loop | `insight_quality`, `insight_validation_rate`, `kb_write_success_rate` |
+
+### Viewing Traces
+
+1. Set environment variables (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`)
+2. Run agents normally
+3. View traces at [cloud.langfuse.com](https://cloud.langfuse.com) (or self-hosted URL)
+4. Filter by agent name, trace ID, or metadata
+
+### Graceful Degradation
+
+When Langfuse is not configured:
+- Tracing functions return `null` (no-op)
+- Agents operate normally without metrics
+- No errors thrown
 
 ## Key Specs
 

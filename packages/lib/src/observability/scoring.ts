@@ -261,6 +261,228 @@ export async function recordResponseRelevance(
 }
 
 // ===========================================
+// Meeting Prep Specific Scores
+// ===========================================
+
+/**
+ * Record brief generation quality
+ *
+ * @param traceId - Trace ID
+ * @param sectionsGenerated - Number of sections successfully generated
+ * @param totalSections - Total sections expected
+ */
+export async function recordBriefQuality(
+  traceId: string,
+  sectionsGenerated: number,
+  totalSections: number
+): Promise<void> {
+  const quality = totalSections > 0 ? sectionsGenerated / totalSections : 0;
+
+  await recordScore({
+    traceId,
+    name: 'brief_quality',
+    value: Math.max(0, Math.min(1, quality)),
+    dataType: 'NUMERIC',
+    comment: `Generated ${sectionsGenerated}/${totalSections} sections (${(quality * 100).toFixed(1)}%)`,
+    metadata: {
+      sectionsGenerated,
+      totalSections,
+    },
+  });
+}
+
+/**
+ * Record BANT extraction confidence
+ *
+ * @param traceId - Trace ID
+ * @param bantScore - BANT score (0-100)
+ * @param recommendation - Meeting recommendation
+ */
+export async function recordBANTConfidence(
+  traceId: string,
+  bantScore: number,
+  recommendation: string
+): Promise<void> {
+  // Normalize BANT score to 0-1 range
+  const normalizedScore = bantScore / 100;
+
+  await recordScore({
+    traceId,
+    name: 'bant_extraction_confidence',
+    value: Math.max(0, Math.min(1, normalizedScore)),
+    dataType: 'NUMERIC',
+    stringValue: recommendation,
+    comment: `BANT score: ${bantScore}/100, Recommendation: ${recommendation}`,
+    metadata: {
+      bantScore,
+      recommendation,
+    },
+  });
+}
+
+/**
+ * Record context gathering completeness
+ *
+ * @param traceId - Trace ID
+ * @param sourcesGathered - Number of sources successfully gathered
+ * @param totalSources - Total sources attempted
+ */
+export async function recordContextCompleteness(
+  traceId: string,
+  sourcesGathered: number,
+  totalSources: number
+): Promise<void> {
+  const completeness = totalSources > 0 ? sourcesGathered / totalSources : 0;
+
+  await recordScore({
+    traceId,
+    name: 'context_completeness',
+    value: Math.max(0, Math.min(1, completeness)),
+    dataType: 'NUMERIC',
+    comment: `Gathered ${sourcesGathered}/${totalSources} sources`,
+    metadata: {
+      sourcesGathered,
+      totalSources,
+    },
+  });
+}
+
+// ===========================================
+// Learning Loop Specific Scores
+// ===========================================
+
+/**
+ * Record insight extraction quality
+ *
+ * @param traceId - Trace ID
+ * @param insightCount - Number of insights extracted
+ * @param avgConfidence - Average confidence across insights
+ */
+export async function recordInsightQuality(
+  traceId: string,
+  insightCount: number,
+  avgConfidence: number
+): Promise<void> {
+  await recordScore({
+    traceId,
+    name: 'insight_extraction_quality',
+    value: Math.max(0, Math.min(1, avgConfidence)),
+    dataType: 'NUMERIC',
+    comment: `Extracted ${insightCount} insights with ${(avgConfidence * 100).toFixed(1)}% avg confidence`,
+    metadata: {
+      insightCount,
+      avgConfidence,
+    },
+  });
+}
+
+/**
+ * Record insight validation rate
+ *
+ * @param traceId - Trace ID
+ * @param insightsValidated - Number of insights validated (approved)
+ * @param totalInsights - Total insights submitted for validation
+ */
+export async function recordInsightValidationRate(
+  traceId: string,
+  insightsValidated: number,
+  totalInsights: number
+): Promise<void> {
+  const rate = totalInsights > 0 ? insightsValidated / totalInsights : 0;
+
+  await recordScore({
+    traceId,
+    name: 'insight_validation_rate',
+    value: Math.max(0, Math.min(1, rate)),
+    dataType: 'NUMERIC',
+    comment: `${insightsValidated}/${totalInsights} insights validated (${(rate * 100).toFixed(1)}%)`,
+    metadata: {
+      insightsValidated,
+      totalInsights,
+    },
+  });
+}
+
+/**
+ * Record KB write success rate
+ *
+ * @param traceId - Trace ID
+ * @param successfulWrites - Number of successful KB writes
+ * @param totalWrites - Total write attempts
+ */
+export async function recordKBWriteSuccessRate(
+  traceId: string,
+  successfulWrites: number,
+  totalWrites: number
+): Promise<void> {
+  const rate = totalWrites > 0 ? successfulWrites / totalWrites : 0;
+
+  await recordScore({
+    traceId,
+    name: 'kb_write_success_rate',
+    value: Math.max(0, Math.min(1, rate)),
+    dataType: 'NUMERIC',
+    comment: `${successfulWrites}/${totalWrites} KB writes successful (${(rate * 100).toFixed(1)}%)`,
+    metadata: {
+      successfulWrites,
+      totalWrites,
+    },
+  });
+}
+
+/**
+ * Record personalization quality score
+ *
+ * @param traceId - Trace ID
+ * @param observationId - Generation observation ID
+ * @param qualityScore - Quality score (0-1)
+ * @param templateUsed - Whether a template was used
+ */
+export async function recordPersonalizationQuality(
+  traceId: string,
+  observationId: string,
+  qualityScore: number,
+  templateUsed: boolean
+): Promise<void> {
+  await recordScore({
+    traceId,
+    observationId,
+    name: 'personalization_quality',
+    value: Math.max(0, Math.min(1, qualityScore)),
+    dataType: 'NUMERIC',
+    comment: templateUsed ? 'Personalized from template' : 'Generated without template',
+    metadata: {
+      templateUsed,
+    },
+  });
+}
+
+/**
+ * Record category classification confidence
+ *
+ * @param traceId - Trace ID
+ * @param category - Category (A, B, or C)
+ * @param confidence - Confidence score (0-1)
+ */
+export async function recordCategoryConfidence(
+  traceId: string,
+  category: 'A' | 'B' | 'C',
+  confidence: number
+): Promise<void> {
+  await recordScore({
+    traceId,
+    name: 'category_confidence',
+    value: Math.max(0, Math.min(1, confidence)),
+    dataType: 'NUMERIC',
+    stringValue: category,
+    comment: `Classified as Category ${category} with ${(confidence * 100).toFixed(1)}% confidence`,
+    metadata: {
+      category,
+    },
+  });
+}
+
+// ===========================================
 // Batch Scoring for Lead Processing
 // ===========================================
 

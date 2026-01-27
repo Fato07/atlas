@@ -11,6 +11,7 @@ import type {
   PIIResult,
   ThreatCategory,
 } from './types';
+import { getLakeraDebugConfig } from './types';
 
 /**
  * Lakera Guard API endpoint
@@ -68,10 +69,28 @@ export class LakeraGuardClient {
   async screen(content: string): Promise<LakeraGuardResponse> {
     const startTime = Date.now();
     const requestId = crypto.randomUUID();
+    const debugConfig = getLakeraDebugConfig();
+
+    // Log API request start
+    console.log(JSON.stringify({
+      event: 'lakera_api_request_start',
+      requestId,
+      contentLength: content.length,
+      apiUrl: this.apiUrl,
+      projectId: this.projectId ?? null,
+      timestamp: new Date().toISOString(),
+    }));
 
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+
+      // Lakera Guard v2 API expects messages array format
+      const requestBody = {
+        messages: [{ role: 'user', content }],
+        ...(this.projectId && { project_id: this.projectId }),
+        payload: true, // Return PII details if detected
+      };
 
       const response = await fetch(this.apiUrl, {
         method: 'POST',
@@ -79,30 +98,65 @@ export class LakeraGuardClient {
           'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
           'X-Request-ID': requestId,
-          ...(this.projectId && { 'X-Project-ID': this.projectId }),
         },
-        body: JSON.stringify({
-          input: content,
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
 
       if (!response.ok) {
+        const latencyMs = Date.now() - startTime;
+        console.error(JSON.stringify({
+          event: 'lakera_api_error',
+          requestId,
+          httpStatus: response.status,
+          httpStatusText: response.statusText,
+          latencyMs,
+          timestamp: new Date().toISOString(),
+        }));
         throw new Error(`Lakera API error: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
       const latencyMs = Date.now() - startTime;
 
+      // Log successful API response
+      const apiResponse = data as { flagged?: boolean };
+      console.log(JSON.stringify({
+        event: 'lakera_api_success',
+        requestId,
+        httpStatus: response.status,
+        latencyMs,
+        flagged: apiResponse.flagged ?? false,
+        timestamp: new Date().toISOString(),
+        ...(debugConfig.debug && { rawResponseKeys: Object.keys(data) }),
+      }));
+
       return this.parseResponse(data, latencyMs, requestId);
     } catch (error) {
       const latencyMs = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
       if (error instanceof Error && error.name === 'AbortError') {
+        console.error(JSON.stringify({
+          event: 'lakera_api_timeout',
+          requestId,
+          latencyMs,
+          timeoutMs: this.timeoutMs,
+          timestamp: new Date().toISOString(),
+        }));
         throw new Error(`Lakera API timeout after ${this.timeoutMs}ms`);
       }
+
+      // Log other errors
+      console.error(JSON.stringify({
+        event: 'lakera_api_error',
+        requestId,
+        latencyMs,
+        error: errorMessage,
+        timestamp: new Date().toISOString(),
+      }));
 
       throw error;
     }
@@ -259,19 +313,58 @@ let guardClient: LakeraGuardClient | null = null;
  * @param config - Client configuration (uses env vars if not provided)
  */
 export function initLakeraGuard(config?: Partial<LakeraGuardClientConfig>): void {
+  const debugConfig = getLakeraDebugConfig();
   const apiKey = config?.apiKey ?? process.env.LAKERA_GUARD_API_KEY;
+  const projectId = config?.projectId ?? process.env.LAKERA_PROJECT_ID;
+  const apiUrl = config?.apiUrl ?? LAKERA_API_URL;
 
+  // Check if explicitly disabled via env var
+  if (!debugConfig.enabled) {
+    console.log(JSON.stringify({
+      event: 'lakera_guard_init',
+      enabled: false,
+      reason: 'explicitly_disabled_via_env',
+      envVar: 'LAKERA_GUARD_ENABLED=false',
+      timestamp: new Date().toISOString(),
+    }));
+    guardClient = null;
+    return;
+  }
+
+  // Check if API key is missing
   if (!apiKey) {
+    console.log(JSON.stringify({
+      event: 'lakera_guard_init',
+      enabled: false,
+      reason: 'api_key_missing',
+      envVar: 'LAKERA_GUARD_API_KEY',
+      hint: 'Set LAKERA_GUARD_API_KEY environment variable to enable security screening',
+      timestamp: new Date().toISOString(),
+    }));
     console.warn('Lakera Guard API key not configured - security screening disabled');
     return;
   }
 
+  // Initialize the client
   guardClient = new LakeraGuardClient({
     apiKey,
-    projectId: config?.projectId ?? process.env.LAKERA_PROJECT_ID,
+    projectId,
     timeoutMs: config?.timeoutMs,
     apiUrl: config?.apiUrl,
   });
+
+  // Log successful initialization
+  console.log(JSON.stringify({
+    event: 'lakera_guard_init',
+    enabled: true,
+    reason: 'api_key_present',
+    apiUrl,
+    projectId: projectId ?? null,
+    timeoutMs: config?.timeoutMs ?? 5000,
+    debugMode: debugConfig.debug,
+    cacheDisabled: debugConfig.disableCache,
+    timestamp: new Date().toISOString(),
+  }));
 }
 
 /**

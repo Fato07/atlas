@@ -89,6 +89,16 @@ export {
   // Reply Handler specific
   recordClassificationAccuracy,
   recordResponseRelevance,
+  recordPersonalizationQuality,
+  recordCategoryConfidence,
+  // Meeting Prep specific
+  recordBriefQuality,
+  recordBANTConfidence,
+  recordContextCompleteness,
+  // Learning Loop specific
+  recordInsightQuality,
+  recordInsightValidationRate,
+  recordKBWriteSuccessRate,
 } from './scoring';
 
 // Types

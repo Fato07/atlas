@@ -12,6 +12,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { BrainId } from '@atlas-gtm/lib';
+import {
+  isLakeraGuardEnabled,
+  screenBeforeLLM,
+} from '@atlas-gtm/lib/security';
 
 import type { MeetingPrepLogger } from './logger';
 import type { TranscriptInput, AnalysisOutput, MeetingAnalysis, BANT } from './contracts/meeting-analysis';
@@ -273,6 +277,24 @@ export class TranscriptAnalyzer {
    * Call Claude with structured output for analysis.
    */
   private async callClaudeForAnalysis(userPrompt: string): Promise<AnalysisOutput> {
+    // Security screening before Claude API call
+    let promptToUse = userPrompt;
+    if (isLakeraGuardEnabled()) {
+      const securityResult = await screenBeforeLLM(
+        userPrompt,
+        'meeting_prep_transcript_analyzer'
+      );
+
+      if (!securityResult.passed) {
+        throw new Error(`Security blocked: ${securityResult.reason}`);
+      }
+
+      // Use sanitized content if PII was masked
+      if (securityResult.sanitizedContent) {
+        promptToUse = securityResult.sanitizedContent;
+      }
+    }
+
     // Convert schema to JSON Schema for Claude
     const jsonSchema = zodToJsonSchema(AnalysisOutputSchema, {
       name: 'MeetingAnalysis',
@@ -287,7 +309,7 @@ export class TranscriptAnalyzer {
       messages: [
         {
           role: 'user',
-          content: userPrompt,
+          content: promptToUse,
         },
       ],
       tools: [

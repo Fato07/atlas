@@ -18,6 +18,15 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { QdrantClient } from '@qdrant/js-client-rest';
 import { WebClient } from '@slack/web-api';
 import type { BrainId } from '@atlas-gtm/lib';
+import {
+  isLangfuseEnabled,
+  createAgentTrace,
+  endTrace,
+  flushLangfuse,
+  recordBriefQuality,
+  recordBANTConfidence,
+  recordContextCompleteness,
+} from '@atlas-gtm/lib/observability';
 
 import { MeetingPrepLogger, createLogger } from './logger';
 import { MeetingPrepStateManager, loadStateManager } from './state';
@@ -245,6 +254,25 @@ export class MeetingPrepAgent {
     const timer = this.logger.startTimer();
     let briefId: string | undefined;
 
+    // Initialize Langfuse trace if enabled
+    let traceId: string | undefined;
+    if (isLangfuseEnabled()) {
+      const traceContext = createAgentTrace({
+        name: `generate_brief_webhook_${payload.event.event_id}`,
+        metadata: {
+          agentName: 'meeting_prep',
+          brainId: this.brainId,
+          environment: (process.env.NODE_ENV as 'development' | 'production') ?? 'development',
+        },
+        input: {
+          meetingId: payload.event.event_id,
+          attendeeEmail: payload.event.attendees[0]?.email,
+          source: 'calendar_webhook',
+        },
+      });
+      traceId = traceContext?.traceId;
+    }
+
     try {
       // Step 1: Parse and validate calendar event
       const handleResult = await this.calendarHandler.handle(payload);
@@ -300,6 +328,20 @@ export class MeetingPrepAgent {
 
       const contextDurationMs = contextTimer();
 
+      // Record context completeness in Langfuse
+      if (traceId && isLangfuseEnabled()) {
+        // Count gathered vs expected sources
+        const totalSources = 4; // lead, conversation_history, company_intel, kb_context
+        let gatheredSources = 0;
+        if (contextResult.context.lead.email) gatheredSources++;
+        if (contextResult.context.conversation_history.length > 0) gatheredSources++;
+        if (contextResult.context.company_intel) gatheredSources++;
+        if (contextResult.context.kb_context.objection_handlers.length > 0 ||
+            contextResult.context.kb_context.similar_deals.length > 0) gatheredSources++;
+
+        await recordContextCompleteness(traceId, gatheredSources, totalSources);
+      }
+
       // Step 3: Generate brief using Claude with structured outputs
       const generationResult = await this.briefGenerator.generate({
         brainId: this.brainId,
@@ -319,6 +361,11 @@ export class MeetingPrepAgent {
           recoverable: generationResult.code !== 'PARSING_ERROR',
         });
 
+        // End trace on generation failure
+        if (traceId && isLangfuseEnabled()) {
+          endTrace(traceId, { error: generationResult.error, processingTimeMs: timer() });
+          flushLangfuse().catch(() => {});
+        }
         return {
           success: false,
           message: 'Brief generation failed',
@@ -328,6 +375,22 @@ export class MeetingPrepAgent {
           },
           processing_time_ms: timer(),
         };
+      }
+
+      // Record brief quality in Langfuse
+      if (traceId && isLangfuseEnabled()) {
+        const totalSections = 7; // All possible brief sections
+        let sectionsGenerated = 0;
+        const content = generationResult.content;
+        if (content.quick_context) sectionsGenerated++;
+        if (content.conversation_timeline?.length > 0) sectionsGenerated++;
+        if (content.company_intel) sectionsGenerated++;
+        if (content.talking_points?.length > 0) sectionsGenerated++;
+        if (content.suggested_questions?.length > 0) sectionsGenerated++;
+        if (content.objection_handlers?.length > 0) sectionsGenerated++;
+        if (content.similar_won_deals?.length > 0) sectionsGenerated++;
+
+        await recordBriefQuality(traceId, sectionsGenerated, totalSections);
       }
 
       // Step 4: Deliver brief via Slack
@@ -353,6 +416,11 @@ export class MeetingPrepAgent {
           recoverable: deliveryResult.code !== 'CHANNEL_NOT_FOUND',
         });
 
+        // End trace on delivery failure
+        if (traceId && isLangfuseEnabled()) {
+          endTrace(traceId, { error: deliveryResult.error, processingTimeMs: timer() });
+          flushLangfuse().catch(() => {});
+        }
         return {
           success: false,
           message: 'Brief delivery failed',
@@ -375,6 +443,17 @@ export class MeetingPrepAgent {
         await this.stateManager.checkpoint();
       }
 
+      // End trace on success
+      if (traceId && isLangfuseEnabled()) {
+        endTrace(traceId, {
+          briefId,
+          meetingId: meeting.meeting_id,
+          success: true,
+          processingTimeMs: timer(),
+        });
+        flushLangfuse().catch(() => {});
+      }
+
       return {
         success: true,
         message: 'Brief generated and delivered successfully',
@@ -393,6 +472,12 @@ export class MeetingPrepAgent {
         retry_count: 0,
         recoverable: true,
       });
+
+      // End trace on error
+      if (traceId && isLangfuseEnabled()) {
+        endTrace(traceId, { error: errorMessage, processingTimeMs: timer() });
+        flushLangfuse().catch(() => {});
+      }
 
       return {
         success: false,
@@ -766,6 +851,25 @@ export class MeetingPrepAgent {
       transcript_length: input.transcript_text.length,
     });
 
+    // Initialize Langfuse trace if enabled
+    let traceId: string | undefined;
+    if (isLangfuseEnabled()) {
+      const traceContext = createAgentTrace({
+        name: `analyze_transcript_${input.meeting_id}`,
+        metadata: {
+          agentName: 'meeting_prep',
+          brainId: this.brainId,
+          environment: (process.env.NODE_ENV as 'development' | 'production') ?? 'development',
+        },
+        input: {
+          meetingId: input.meeting_id,
+          transcriptSource: input.source,
+          transcriptLength: input.transcript_text.length,
+        },
+      });
+      traceId = traceContext?.traceId;
+    }
+
     try {
       // Step 1: Analyze transcript with Claude structured outputs
       const analysisResult = await this.transcriptAnalyzer.analyze({
@@ -785,6 +889,12 @@ export class MeetingPrepAgent {
           recoverable: analysisResult.code !== 'TRANSCRIPT_TOO_SHORT',
         });
 
+        // End trace on analysis failure
+        if (traceId && isLangfuseEnabled()) {
+          endTrace(traceId, { error: analysisResult.error, processingTimeMs: timer() });
+          flushLangfuse().catch(() => {});
+        }
+
         return {
           success: false,
           message: 'Transcript analysis failed',
@@ -797,6 +907,15 @@ export class MeetingPrepAgent {
       }
 
       const { analysis } = analysisResult;
+
+      // Record BANT confidence in Langfuse
+      if (traceId && isLangfuseEnabled()) {
+        await recordBANTConfidence(
+          traceId,
+          analysis.bant.overall.score,
+          analysis.bant.overall.recommendation
+        );
+      }
 
       // Step 2: Update CRM systems with analysis results
       const crmResult = await this.crmUpdater.update({
@@ -839,6 +958,18 @@ export class MeetingPrepAgent {
         action_items_count: analysis.action_items.length,
       });
 
+      // End trace on success
+      if (traceId && isLangfuseEnabled()) {
+        endTrace(traceId, {
+          analysisId: analysis.analysis_id,
+          bantScore: analysis.bant.overall.score,
+          recommendation: analysis.bant.overall.recommendation,
+          success: true,
+          processingTimeMs: timer(),
+        });
+        flushLangfuse().catch(() => {});
+      }
+
       return {
         success: true,
         message: 'Transcript analyzed successfully',
@@ -859,6 +990,12 @@ export class MeetingPrepAgent {
         retry_count: 0,
         recoverable: true,
       });
+
+      // End trace on error
+      if (traceId && isLangfuseEnabled()) {
+        endTrace(traceId, { error: errorMessage, processingTimeMs: timer() });
+        flushLangfuse().catch(() => {});
+      }
 
       return {
         success: false,

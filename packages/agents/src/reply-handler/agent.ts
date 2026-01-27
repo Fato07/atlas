@@ -10,12 +10,24 @@
  * 6. Update CRM and extract insights (FR-019-FR-023)
  * 7. Log all events (FR-029)
  *
+ * Observability: Integrates with Langfuse for tracing when enabled.
+ *
  * @module reply-handler/agent
  */
 
 import Anthropic from '@anthropic-ai/sdk';
 import type { QdrantClient } from '@qdrant/js-client-rest';
 import type { WebClient } from '@slack/web-api';
+import type { BrainId } from '@atlas-gtm/lib';
+import {
+  isLangfuseEnabled,
+  getLangfuse,
+  flushLangfuse,
+  createAgentTrace,
+  endTrace,
+  recordClassificationAccuracy,
+  recordCategoryConfidence,
+} from '@atlas-gtm/lib/observability';
 
 import { extractNewContent } from './email-parser';
 import { ReplyClassifier, createClassifier } from './classifier';
@@ -197,6 +209,26 @@ export class ReplyHandlerAgent {
       thread_id: input.thread_id,
     });
 
+    // Initialize Langfuse trace if enabled
+    let traceId: string | undefined;
+    if (isLangfuseEnabled()) {
+      const traceContext = createAgentTrace({
+        name: `handle_reply_${input.reply_id}`,
+        metadata: {
+          agentName: 'reply_handler',
+          brainId: input.brain_id as BrainId,
+          environment: (process.env.NODE_ENV as 'development' | 'production') ?? 'development',
+        },
+        input: {
+          replyId: input.reply_id,
+          leadId: input.lead_id,
+          leadEmail: input.lead_email,
+          channel: input.source,
+        },
+      });
+      traceId = traceContext?.traceId;
+    }
+
     try {
       // Step 1: Parse and extract new content (FR-001)
       const cleanedReplyText = extractNewContent(input.reply_text);
@@ -227,6 +259,15 @@ export class ReplyHandlerAgent {
         tokens_used: classification.tokens_used,
       });
 
+      // Record classification accuracy in Langfuse
+      if (traceId && isLangfuseEnabled()) {
+        await recordClassificationAccuracy(
+          traceId,
+          classification.intent,
+          classification.intent_confidence
+        );
+      }
+
       // Step 3: Match KB templates (FR-005, FR-006, FR-007, FR-008)
       const kbMatch = await this.matcher.findMatch({
         classification,
@@ -250,6 +291,20 @@ export class ReplyHandlerAgent {
         kb_match_confidence: kbMatch?.confidence,
         override_applied: routing.override_applied,
       });
+
+      // Record category confidence in Langfuse (tier maps to category)
+      if (traceId && isLangfuseEnabled()) {
+        const categoryMap: Record<number, 'A' | 'B' | 'C'> = {
+          1: 'A',  // Auto-respond = high confidence
+          2: 'B',  // Draft for approval = moderate confidence
+          3: 'C',  // Escalation = low confidence
+        };
+        await recordCategoryConfidence(
+          traceId,
+          categoryMap[routing.tier] ?? 'C',
+          kbMatch?.confidence ?? classification.intent_confidence
+        );
+      }
 
       // Step 5: Execute tier-specific flow
       let result: ReplyHandlerResult;
@@ -293,6 +348,19 @@ export class ReplyHandlerAgent {
           break;
       }
 
+      // End Langfuse trace on success
+      if (traceId && isLangfuseEnabled()) {
+        endTrace(traceId, {
+          tier: routing.tier,
+          intent: classification.intent,
+          category: routing.tier === 1 ? 'A' : routing.tier === 2 ? 'B' : 'C',
+          action: result.action,
+          processingTimeMs: getElapsedMs(),
+        });
+        // Flush traces asynchronously (don't block response)
+        flushLangfuse().catch(() => {});
+      }
+
       return result;
     } catch (error) {
       // Log error (FR-029)
@@ -306,6 +374,15 @@ export class ReplyHandlerAgent {
         recoverable: false,
         retry_count: 0,
       });
+
+      // End Langfuse trace on error
+      if (traceId && isLangfuseEnabled()) {
+        endTrace(traceId, {
+          error: errorMessage,
+          processingTimeMs: getElapsedMs(),
+        });
+        flushLangfuse().catch(() => {});
+      }
 
       return createErrorResult({
         replyId: input.reply_id,

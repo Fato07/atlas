@@ -1,8 +1,8 @@
 # Atlas GTM Data Flow Architecture
 
-> **Last Updated**: 2026-01-22
-> **Version**: 1.8
-> **Status**: Active - Lead Flow (End-to-End) diagram added
+> **Last Updated**: 2026-01-27
+> **Version**: 1.9
+> **Status**: Active - Security & Observability documentation added
 
 ---
 
@@ -98,6 +98,8 @@ Atlas GTM is an AI-first GTM Operations System that uses swappable "brains" (ver
 2. **Tier-Based Routing**: Leads/replies routed to Tier 1 (auto), Tier 2 (approval), or Tier 3 (human)
 3. **MCP Tool Integration**: Agents use MCP servers for external integrations
 4. **State Persistence**: Long-running operations checkpoint to state files
+5. **Security Screening**: All webhook inputs and LLM calls pass through Lakera Guard (when enabled)
+6. **Observability Tracing**: All agent operations wrapped in Langfuse traces with quality scores (when enabled)
 
 ---
 
@@ -482,6 +484,8 @@ All agents share:
 - **Qdrant KB** - Brain-scoped knowledge base queries
 - **State files** - Session checkpoints for resumability
 - **Slack delivery** - Consistent Block Kit formatting
+- **Security layer** - Lakera Guard for prompt injection detection and PII masking (optional)
+- **Observability layer** - Langfuse tracing with agent-specific quality scores (optional)
 
 ---
 
@@ -1550,6 +1554,7 @@ flowchart LR
 
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
+| 2026-01-27 | 1.9 | Added security and observability documentation: updated Key Architectural Patterns with security screening and observability tracing patterns, added security layer and observability layer to Shared Infrastructure section, marked observability and security touchpoints as completed in Next Steps. All 4 agents now have Lakera Guard (prompt injection, PII masking) and Langfuse (tracing, quality scores) integration. | Atlas GTM Team |
 | 2026-01-22 | 1.8 | Added Lead Flow (End-to-End) section with Three-System Architecture diagram (Hands/Brain/Eyes), comprehensive lead flow diagram showing enrichment → scoring → sequences → classification → category outcomes, Scoring vs Intelligence table, and Category Workflow Details table. Verified against actual code (category-a/b/c.ts). | Atlas GTM Team |
 | 2026-01-22 | 1.7 | Added A/B/C category workflow for GTM Ops (0.70 confidence threshold). Added 4 new n8n workflows (reply-classification, category-a/b/c handlers). Updated Reply Handler Flow section with category routing diagram. | Atlas GTM Team |
 | 2026-01-21 | 1.6 | Added Three-System Architecture section clarifying KB=Brain=system-level intelligence (NOT lead-level). Updated glossary. | Atlas GTM Team |
@@ -1594,7 +1599,8 @@ flowchart LR
 - [ ] Review with GTM expert
 - [x] Add Meeting Prep agent flow ✅
 - [x] Add error handling paths (Meeting Prep has retry/fallback documented) ✅
-- [ ] Add monitoring/observability touchpoints
+- [x] Add monitoring/observability touchpoints (Langfuse tracing implemented across all 4 agents) ✅
+- [x] Add security screening touchpoints (Lakera Guard implemented across all 4 agents) ✅
 - [ ] Document retry/fallback patterns for Lead Scorer and Reply Handler
 
 ---
