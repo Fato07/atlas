@@ -73,3 +73,7 @@ secrets*.json
 .specify/*
 specs/*
 leadflow.txt
+
+# Claude-mem generated files (keep root CLAUDE.md)
+**/CLAUDE.md
+!/CLAUDE.md
