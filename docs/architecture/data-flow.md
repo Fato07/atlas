@@ -45,6 +45,7 @@
 | Brain Lifecycle | ✅ | `003-brain-lifecycle` | Create, seed, activate brains |
 | Attio MCP | ✅ | `007-attio-mcp-server` | CRM operations, pipeline management |
 | MCP REST API | ✅ | `008-meeting-prep-agent` | HTTP wrapper for MCP tools (:8100) |
+| Dashboard API (BFF) | ✅ | `016-operator-dashboard` | Schema-first validated BFF pattern |
 | Instantly MCP | ✅ | `011-instantly-mcp-upgrade` | 38 tools: campaigns, leads, emails, accounts, analytics, jobs |
 | HeyReach MCP | ✅ | `012-heyreach-mcp-server` | 35 tools: campaigns, inbox, accounts, lists, leads, stats, webhooks |
 
@@ -1597,5 +1598,10 @@ flowchart LR
 - [ ] Document retry/fallback patterns for Lead Scorer and Reply Handler
 
 ---
+
+## Related Documentation
+
+- [Data Contracts Architecture](./data-contracts.md) - Schema-first validation pattern for Dashboard API
+- [Knowledge Base Spec](../../specs/knowledge-base.md) - KB design decisions
 
 *For implementation details, see the specs in `/specs/` directory.*

@@ -15,10 +15,18 @@ Atlas GTM is a go-to-market automation platform using Claude, Qdrant, n8n, and c
 bun install
 cd mcp-servers && uv sync && cd ..
 
-# Development
-bun run dev                    # Start all packages in watch mode
-bun run dev:agents             # Agents only
-bun run mcp:dev                # MCP servers (Python)
+# Development (Unified - Recommended)
+bun run dev:all              # Full stack: Docker + MCP + Dashboard + All Agents
+bun run dev:services         # Local services only (assumes Docker running)
+bun run dev:agents           # All 4 agents with colored output
+bun run dev:dashboard        # Dashboard API + UI only
+
+# Development (Individual)
+bun run agent:lead-scorer    # Lead Scorer on port 4001
+bun run agent:reply-handler  # Reply Handler on port 4002
+bun run agent:meeting-prep   # Meeting Prep on port 4003
+bun run agent:learning-loop  # Learning Loop on port 4004
+bun run mcp:rest             # MCP REST server on port 8100
 
 # Testing
 bun test                       # All tests

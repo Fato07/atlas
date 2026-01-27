@@ -80,12 +80,23 @@ bun run seed:brain --vertical=defense --source=./data/defense-kb.json
 ### 5. Start Development
 
 ```bash
-# Start agents in watch mode
-bun run dev:agents
+# Start everything (Docker + MCP + Dashboard + Agents)
+bun run dev:all
 
-# In another terminal, start MCP servers
-bun run mcp:dev
+# OR if Docker is already running
+bun run dev:services
 ```
+
+**Service Ports**:
+| Service | Port |
+|---------|------|
+| Dashboard API | 4000 |
+| Lead Scorer | 4001 |
+| Reply Handler | 4002 |
+| Meeting Prep | 4003 |
+| Learning Loop | 4004 |
+| Dashboard UI | 5173 |
+| MCP REST Server | 8100 |
 
 ## Architecture
 
@@ -205,10 +216,18 @@ Automated knowledge capture from conversations:
 ## Commands Reference
 
 ```bash
-# Development
-bun run dev                # Start all packages
-bun run dev:agents         # Start agents only
-bun run mcp:dev            # Start MCP servers
+# Development (Unified - Recommended)
+bun run dev:all            # Full stack: Docker + MCP + Dashboard + All Agents
+bun run dev:services       # Local services only (assumes Docker running)
+bun run dev:agents         # All 4 agents with colored output
+bun run dev:dashboard      # Dashboard API + UI only
+
+# Development (Individual)
+bun run agent:lead-scorer    # Lead Scorer on port 4001
+bun run agent:reply-handler  # Reply Handler on port 4002
+bun run agent:meeting-prep   # Meeting Prep on port 4003
+bun run agent:learning-loop  # Learning Loop on port 4004
+bun run mcp:rest             # MCP REST server on port 8100
 
 # Testing
 bun test                   # Run all tests
