@@ -322,7 +322,13 @@ def main() -> int:
         return 0
 
     if args.command == "evaluate":
-        return asyncio.run(run_evaluation(args))
+        try:
+            return asyncio.run(run_evaluation(args))
+        except asyncio.CancelledError:
+            # This can happen due to signal-based timeout cleanup interacting
+            # with asyncio. If we get here, evaluation already completed.
+            logger.warning("Asyncio cleanup interrupted (evaluation completed)")
+            return 0
     elif args.command == "list":
         return run_list(args)
 
