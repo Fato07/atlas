@@ -286,7 +286,7 @@
       "position": [1900, 100],
       "credentials": {
         "slackApi": {
-          "id": "SLACK_CREDENTIALS_ID",
+          "id": "IVDf642bqFHrsMw1",
           "name": "Slack API"
         }
       }
@@ -307,7 +307,7 @@
       "position": [1900, 300],
       "credentials": {
         "slackApi": {
-          "id": "SLACK_CREDENTIALS_ID",
+          "id": "IVDf642bqFHrsMw1",
           "name": "Slack API"
         }
       }

@@ -45,6 +45,11 @@
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f",
+    "n8n:import": "bash scripts/n8n-import.sh",
+    "n8n:activate": "bash scripts/n8n-activate.sh",
+    "n8n:credentials": "bash scripts/n8n-credentials.sh",
+    "n8n:setup": "bash scripts/n8n-import.sh && bash scripts/n8n-activate.sh",
+    "n8n:list": "docker exec -u node $(docker ps --format '{{.Names}}' | grep -E 'n8n' | grep -v 'nginx' | head -1) n8n list:workflow",
     "setup": "bun install && cd mcp-servers && uv sync"
   },
   "devDependencies": {

@@ -124,7 +124,7 @@
       "position": [300, 400],
       "credentials": {
         "googleCalendarOAuth2Api": {
-          "id": "GOOGLE_CALENDAR_CREDENTIALS_ID",
+          "id": "yuM89h69yC0tO28C",
           "name": "Google Calendar"
         }
       }
@@ -248,7 +248,7 @@
       "position": [1300, 150],
       "credentials": {
         "slackApi": {
-          "id": "SLACK_CREDENTIALS_ID",
+          "id": "IVDf642bqFHrsMw1",
           "name": "Slack API"
         }
       }
@@ -337,7 +337,7 @@
       "position": [1300, 400],
       "credentials": {
         "slackApi": {
-          "id": "SLACK_CREDENTIALS_ID",
+          "id": "IVDf642bqFHrsMw1",
           "name": "Slack API"
         }
       }

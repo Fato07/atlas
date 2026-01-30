@@ -244,7 +244,7 @@
       "position": [1700, 150],
       "credentials": {
         "slackApi": {
-          "id": "SLACK_CREDENTIALS_ID",
+          "id": "IVDf642bqFHrsMw1",
           "name": "Slack API"
         }
       }
@@ -274,7 +274,7 @@
       "position": [2100, 250],
       "credentials": {
         "slackApi": {
-          "id": "SLACK_CREDENTIALS_ID",
+          "id": "IVDf642bqFHrsMw1",
           "name": "Slack API"
         }
       }
@@ -363,7 +363,7 @@
       "position": [1300, 500],
       "credentials": {
         "slackApi": {
-          "id": "SLACK_CREDENTIALS_ID",
+          "id": "IVDf642bqFHrsMw1",
           "name": "Slack API"
         }
       }
